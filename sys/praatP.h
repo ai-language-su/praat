@@ -57,6 +57,7 @@ void praat_sortMenuCommands ();
 #define praat_MAXNUM_FILE_TYPE_RECOGNIZERS 50   /* File types recognizable by 'Read from file...'. */
 
 Thing_define (Praat_Command, Thing) {
+	integer searchId = 0;   // assigned lazily; never reused during this session
 	ClassInfo class1, class2, class3, class4;   // selected classes
 	integer n1, n2, n3, n4;   // number of selected objects of each class; 0 means "any number"
 	autostring32 title;   // button text = command text
@@ -148,6 +149,10 @@ int praat_doAction (conststring32 command, conststring32 arguments, Interpreter 
 int praat_doAction (conststring32 command, integer narg, Stackel args, Interpreter interpreter);   // 0 = not found
 integer praat_getNumberOfActions ();   // for ButtonEditor
 Praat_Command praat_getAction (integer i);   // for ButtonEditor
+conststring32 praat_actionSummary (Praat_Command command);
+conststring32 praat_actionGuide (Praat_Command command);
+bool praat_searchActivateAction (integer id);
+bool praat_searchActivateFixed (integer id);
 
 /* Communication with praat_statistics.cpp: */
 void praat_statistics_prefs ();   // at init time
@@ -165,6 +170,9 @@ void praat_reportFontProperties ();
 /* Communication with praat_objectMenus.cpp: */
 GuiMenu praat_objects_resolveMenu (conststring32 menu);
 void praat_addFixedButtons (GuiWindow window);
+#if defined (_WIN32)
+void praat_objects_enableFileDrop (GuiWindow window, GuiList list);
+#endif
 void praat_addMenus (GuiWindow window);
 void praat_addMenus2 ();
 

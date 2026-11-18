@@ -17,6 +17,7 @@
  */
 
 #include "FunctionArea.h"
+#include "EditorHoverHelp.h"
 #include "EditorM.h"
 
 Thing_implement (FunctionArea, Thing, 0);
@@ -58,7 +59,10 @@ void FunctionArea_drawRightMark (FunctionArea me, double yWC, conststring32 yWC_
 	Graphics_setTextAlignment (my graphics(), Graphics_LEFT, verticalAlignment);
 	if (verticalAlignment == Graphics_BOTTOM)
 		yWC -= Graphics_dyMMtoWC (my graphics(), 0.5);
-	Graphics_text (my graphics(), my endWindow(), yWC, text.string);
+	if (str32equ (Thing_className (me), U"SpectrumArea"))
+		Graphics_textWithHelp (my graphics(), EditorHoverHelp::spectrumRange, my endWindow(), yWC, text.string);
+	else
+		Graphics_text (my graphics(), my endWindow(), yWC, text.string);
 }
 
 void FunctionArea_drawLegend_ (FunctionArea me,
@@ -119,16 +123,16 @@ void FunctionArea_drawLegend_ (FunctionArea me,
 	}
 	Graphics_setColour (my graphics(), colour1);
 	const double y = my top_pxlt() + 2;
-	Graphics_text (my graphics(), 1.0 - lengthText4 - lengthSep3 - lengthText3 - lengthSep2 - lengthText2 - lengthSep1,
+	Graphics_textWithHelp (my graphics(), EditorHoverHelp::forLegend (cattableText1), 1.0 - lengthText4 - lengthSep3 - lengthText3 - lengthSep2 - lengthText2 - lengthSep1,
 			y, cattableText1);
 	Graphics_setColour (my graphics(), colour2);
-	Graphics_text (my graphics(), 1.0 - lengthText4 - lengthSep3 - lengthText3 - lengthSep2,
+	Graphics_textWithHelp (my graphics(), EditorHoverHelp::forLegend (cattableText2), 1.0 - lengthText4 - lengthSep3 - lengthText3 - lengthSep2,
 			y, cattableText2);
 	Graphics_setColour (my graphics(), colour3);
-	Graphics_text (my graphics(), 1.0 - lengthText4 - lengthSep3,
+	Graphics_textWithHelp (my graphics(), EditorHoverHelp::forLegend (cattableText3), 1.0 - lengthText4 - lengthSep3,
 			y, cattableText3);
 	Graphics_setColour (my graphics(), colour4);
-	Graphics_text (my graphics(), 1.0,
+	Graphics_textWithHelp (my graphics(), EditorHoverHelp::forLegend (cattableText4), 1.0,
 			y, cattableText4);
 	Graphics_setColour (my graphics(), Melder_BLACK);
 	Graphics_text (my graphics(), 1.0 - lengthText4 - lengthSep3 - lengthText3 - lengthSep2 - lengthText2,

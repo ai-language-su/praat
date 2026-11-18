@@ -17,6 +17,7 @@
  */
 
 #include "GuiP.h"
+#include "GuiTheme.h"
 
 Thing_implement (GuiLabel, GuiControl, 0);
 
@@ -121,6 +122,7 @@ GuiLabel GuiLabel_create (GuiForm parent, int left, int right, int top, int bott
 			my d_widget -> x, my d_widget -> y, my d_widget -> width, my d_widget -> height,
 			my d_widget -> parent -> window, (HMENU) 1, theGui.instance, nullptr);
 		SetWindowLongPtr (my d_widget -> window, GWLP_USERDATA, (LONG_PTR) my d_widget);
+		GuiTheme_attach (my d_widget -> window);
 		if (flags & GuiLabel_BOLD)
 			SetWindowFont (my d_widget -> window, theWinGuiBoldLabelFont (), false);
 		else

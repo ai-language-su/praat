@@ -17,6 +17,7 @@
  */
 
 #include "GraphicsP.h"
+#include "GuiTheme.h"
 
 /* Normally on, because e.g. the intensity contour in the Sound window should not run through the play buttons: */
 #define FUNCTIONS_ARE_CLIPPED  1
@@ -511,6 +512,10 @@ void structGraphicsPostscript :: v_fillEllipse (double x1DC, double x2DC, double
 
 void structGraphicsScreen :: v_button (double x1DC, double x2DC, double y1DC, double y2DC) {
 	ORDER_DC
+	#if gdi
+		RECT themedRect { (LONG) x1DC, (LONG) y2DC, (LONG) x2DC, (LONG) y1DC };
+		if (GuiTheme_drawCanvasButton (this, our d_gdiGraphicsContext, themedRect)) return;
+	#endif
 	#if cairo
 		if (x2DC <= x1DC || y1DC <= y2DC)
 			return;

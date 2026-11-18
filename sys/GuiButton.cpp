@@ -18,6 +18,10 @@
  */
 
 #include "GuiP.h"
+#include "GuiTheme.h"
+#if defined (_WIN32)
+	#include <commctrl.h>
+#endif
 
 Thing_implement (GuiButton, GuiControl, 0);
 
@@ -47,8 +51,68 @@ Thing_implement (GuiButton, GuiControl, 0);
 		}
 	}
 #elif motif
+	static void _GuiWinButton_showTooltip (HWND window, GuiButton me) {
+		RECT buttonRect;
+		GetWindowRect (window, & buttonRect);
+		MONITORINFO monitor { sizeof monitor };
+		GetMonitorInfoW (MonitorFromRect (& buttonRect, MONITOR_DEFAULTTONEAREST), & monitor);
+		const int estimatedHeight = std::min (int (monitor.rcWork.bottom - monitor.rcWork.top - 16),
+			60 + lstrlenW ((LPCWSTR) my d_tooltipText.get()) * 2 / 3);
+		const int estimatedWidth = std::min (760, int (monitor.rcWork.right - monitor.rcWork.left - 16));
+		const int x = std::max (int (monitor.rcWork.left),
+			std::min (int (buttonRect.left + 20), int (monitor.rcWork.right - estimatedWidth)));
+		const int y = buttonRect.bottom + 5 + estimatedHeight <= monitor.rcWork.bottom ?
+			int (buttonRect.bottom + 5) : std::max (int (monitor.rcWork.top), int (buttonRect.top - estimatedHeight - 8));
+		TOOLINFOW info { };
+		info.cbSize = TTTOOLINFOW_V2_SIZE;
+		info.hwnd = GetParent (window);
+		info.uId = (UINT_PTR) window;
+		SendMessageW (my d_tooltipWindow, TTM_TRACKPOSITION, 0, MAKELPARAM (x, y));
+		SendMessageW (my d_tooltipWindow, TTM_TRACKACTIVATE, true, (LPARAM) & info);
+		SendMessageW (my d_tooltipWindow, TTM_TRACKPOSITION, 0, MAKELPARAM (x, y));
+	}
+	static LRESULT CALLBACK _GuiWinButton_tooltipProc (HWND window, UINT message, WPARAM wParam, LPARAM lParam,
+			UINT_PTR subclassId, DWORD_PTR referenceData)
+	{
+		GuiButton me = reinterpret_cast <GuiButton> (referenceData);
+		if (message == WM_MOUSEMOVE) {
+			TRACKMOUSEEVENT tracking { sizeof tracking, TME_LEAVE, window, 0 };
+			TrackMouseEvent (& tracking);
+			HANDLE start = GetPropW (window, L"PraatTooltipStart");
+			if (! start) {
+				SetPropW (window, L"PraatTooltipStart", (HANDLE) (UINT_PTR) GetTickCount64 ());
+				SetTimer (window, 1, 700, nullptr);
+			} else if (! GetPropW (window, L"PraatTooltipShown") && GetTickCount64 () - (UINT_PTR) start >= 700) {
+				SetPropW (window, L"PraatTooltipShown", (HANDLE) 1);
+				_GuiWinButton_showTooltip (window, me);
+			}
+		} else if (message == WM_TIMER && wParam == 1) {
+			KillTimer (window, 1);
+			if (! GetPropW (window, L"PraatTooltipShown")) {
+				SetPropW (window, L"PraatTooltipShown", (HANDLE) 1);
+				_GuiWinButton_showTooltip (window, me);
+			}
+		} else if (message == WM_MOUSELEAVE) {
+			KillTimer (window, 1);
+			RemovePropW (window, L"PraatTooltipStart");
+			RemovePropW (window, L"PraatTooltipShown");
+			TOOLINFOW info { };
+			info.cbSize = TTTOOLINFOW_V2_SIZE;
+			info.hwnd = GetParent (window);
+			info.uId = (UINT_PTR) window;
+			SendMessageW (my d_tooltipWindow, TTM_TRACKACTIVATE, false, (LPARAM) & info);
+		} else if (message == WM_NCDESTROY) {
+			KillTimer (window, 1);
+			RemovePropW (window, L"PraatTooltipStart");
+			RemovePropW (window, L"PraatTooltipShown");
+			RemoveWindowSubclass (window, _GuiWinButton_tooltipProc, subclassId);
+		}
+		return DefSubclassProc (window, message, wParam, lParam);
+	}
 	void _GuiWinButton_destroy (GuiObject widget) {
 		iam_button;
+		if (my d_tooltipWindow)
+			DestroyWindow (my d_tooltipWindow);
 		if (widget == widget -> shell -> defaultButton)
 			widget -> shell -> defaultButton = nullptr;   // remove dangling reference
 		if (widget == widget -> shell -> cancelButton)
@@ -176,6 +240,7 @@ GuiButton GuiButton_create (GuiForm parent, int left, int right, int top, int bo
 			my d_widget -> parent -> window, (HMENU) 1, theGui.instance, nullptr
 		);
 		SetWindowLongPtr (my d_widget -> window, GWLP_USERDATA, (LONG_PTR) my d_widget);
+		GuiTheme_attach (my d_widget -> window);
 		SetWindowFont (my d_widget -> window, flags & GuiButton_DEFAULT ? theWinGuiBoldLabelFont () : theWinGuiNormalLabelFont (), false);
 		my v_positionInForm (my d_widget, left, right, top, bottom, parent);
 		if (flags & GuiButton_DEFAULT || flags & GuiButton_ATTRACTIVE)
@@ -237,6 +302,36 @@ void GuiButton_setText (GuiButton me, conststring32 text /* cattable */) {
 		_GuiNativeControl_setTitle (my d_widget);
 	#elif cocoa
 		[(NSButton *) my d_widget setTitle: (NSString *) Melder_peek32toCfstring (text)];
+	#endif
+}
+
+void GuiButton_setTooltip (GuiButton me, conststring32 text) {
+	#if gtk
+		gtk_widget_set_tooltip_text (GTK_WIDGET (my d_widget), Melder_peek32to8 (text));
+	#elif cocoa
+		[(NSButton *) my d_widget setToolTip: (NSString *) Melder_peek32toCfstring (text)];
+	#elif motif
+		my d_tooltipText = Melder_32to16 (text);
+		if (! my d_tooltipWindow) {
+			INITCOMMONCONTROLSEX controls { sizeof controls, ICC_WIN95_CLASSES };
+			InitCommonControlsEx (& controls);
+			my d_tooltipWindow = CreateWindowExW (WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr,
+				WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX, CW_USEDEFAULT, CW_USEDEFAULT,
+				CW_USEDEFAULT, CW_USEDEFAULT, my d_widget -> parent -> window, nullptr, theGui.instance, nullptr);
+			if (! my d_tooltipWindow)
+				return;
+			SendMessageW (my d_tooltipWindow, TTM_SETMAXTIPWIDTH, 0, 500);
+			GuiTheme_attach (my d_tooltipWindow);
+			SetWindowSubclass (my d_widget -> window, _GuiWinButton_tooltipProc, 1, (DWORD_PTR) me);
+		}
+		TOOLINFOW info { };
+		info.cbSize = TTTOOLINFOW_V2_SIZE;
+		info.uFlags = TTF_IDISHWND | TTF_TRACK | TTF_ABSOLUTE;
+		info.hwnd = my d_widget -> parent -> window;
+		info.uId = (UINT_PTR) my d_widget -> window;
+		info.lpszText = (LPWSTR) my d_tooltipText.get();
+		SendMessageW (my d_tooltipWindow, TTM_DELTOOLW, 0, (LPARAM) & info);
+		SendMessageW (my d_tooltipWindow, TTM_ADDTOOLW, 0, (LPARAM) & info);
 	#endif
 }
 

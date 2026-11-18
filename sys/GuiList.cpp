@@ -17,6 +17,7 @@
  */
 
 #include "GuiP.h"
+#include "GuiTheme.h"
 
 Thing_implement (GuiList, GuiControl, 0);
 
@@ -55,6 +56,58 @@ Thing_implement (GuiList, GuiControl, 0);
 			struct structGuiList_SelectionChangedEvent event { me };
 			my d_selectionChangedCallback (my d_selectionChangedBoss, & event);
 		}
+	}
+
+	struct WinListClickState {
+		GuiList list;
+		int row = -1;
+		autoINTVEC selection;
+	};
+
+	static LRESULT CALLBACK winListDoubleClick (HWND window, UINT message, WPARAM wParam, LPARAM lParam,
+			UINT_PTR id, DWORD_PTR data)
+	{
+		auto *state = reinterpret_cast<WinListClickState *> (data);
+		if (message == WM_NCDESTROY) {
+			RemoveWindowSubclass (window, winListDoubleClick, id);
+			delete state;
+		} else if (message == LB_ADDSTRING || message == LB_INSERTSTRING ||
+				message == LB_DELETESTRING || message == LB_RESETCONTENT) {
+			state -> row = -1;
+			state -> selection.reset();
+		} else if (state -> list -> d_doubleClickCallback && (message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK)) {
+			GuiList me = state -> list;
+			const POINT point { GET_X_LPARAM (lParam), GET_Y_LPARAM (lParam) };
+			const int row = LOWORD (SendMessage (window, LB_ITEMFROMPOINT, 0, lParam));
+			RECT bounds;
+			const bool onRow = SendMessage (window, LB_GETITEMRECT, row, (LPARAM) & bounds) != LB_ERR &&
+				PtInRect (& bounds, point);
+			const bool plainClick = ! (wParam & (MK_CONTROL | MK_SHIFT)) && GetKeyState (VK_MENU) >= 0;
+			if (message == WM_LBUTTONDOWN) {
+				state -> selection.reset();
+				state -> row = -1;
+				if (onRow && plainClick && my d_allowMultipleSelection &&
+						SendMessage (window, LB_GETSEL, row, 0) > 0 && ListBox_GetSelCount (window) > 1) {
+					// Windows can collapse an extended selection on the first click.
+					state -> selection = GuiList_getSelectedPositions (me);
+					state -> row = row;
+				}
+			} else if (onRow && plainClick) {
+				autoINTVEC previousSelection = std::move (state -> selection);
+				const bool restoreSelection = state -> row == row;
+				state -> row = -1;
+				const LRESULT result = DefSubclassProc (window, message, wParam, lParam);
+				if (restoreSelection && ListBox_GetSelCount (window) == 1 && SendMessage (window, LB_GETSEL, row, 0) > 0) {
+					for (integer i = 1; i <= previousSelection.size; ++ i)
+						GuiList_selectItem (me, previousSelection [i]);
+					_GuiWinList_handleClick (my d_widget);
+				}
+				struct structGuiList_DoubleClickEvent event { me };
+				my d_doubleClickCallback (my d_doubleClickBoss, & event);
+				return result;
+			}
+		}
+		return DefSubclassProc (window, message, wParam, lParam);
 	}
 #elif cocoa
 	@implementation GuiCocoaList {
@@ -236,6 +289,11 @@ GuiList GuiList_create (GuiForm parent, int left, int right, int top, int bottom
 			my d_widget -> x, my d_widget -> y, my d_widget -> width, my d_widget -> height,
 			my d_widget -> parent -> window, nullptr, theGui.instance, nullptr);
 		SetWindowLongPtr (my d_widget -> window, GWLP_USERDATA, (LONG_PTR) my d_widget);
+		auto clickState = std::make_unique<WinListClickState> ();
+		clickState -> list = me.get();
+		if (SetWindowSubclass (my d_widget -> window, winListDoubleClick, 1, reinterpret_cast<DWORD_PTR> (clickState.get())))
+			clickState.release();
+		GuiTheme_attach (my d_widget -> window);
 		SetWindowFont (my d_widget -> window, theWinGuiNormalLabelFont (), false);
 		/*if (MEMBER (my parent, ScrolledWindow)) {
 			XtDestroyWidget (my d_widget -> parent -> motiff.scrolledWindow.horizontalBar);

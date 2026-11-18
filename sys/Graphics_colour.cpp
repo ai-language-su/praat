@@ -17,6 +17,7 @@
  */
 
 #include "GraphicsP.h"
+#include "GuiTheme.h"
 
 #if quartz
 	#include "macport_on.h"
@@ -26,6 +27,7 @@
 #define wdy(y)  ((y) * my scaleY + my deltaY)
 
 void _Graphics_setColour (Graphics graphics, MelderColour colour) {
+	colour = GuiTheme_colour (graphics, colour);
 	if (graphics -> screen) {
 		GraphicsScreen me = static_cast <GraphicsScreen> (graphics);
 		#if cairo
@@ -62,6 +64,10 @@ void Graphics_setColourScale (Graphics me, enum kGraphics_colourScale colourScal
 
 void _Graphics_setGrey (Graphics graphics, double fgrey) {
 	Melder_clip (0.0, & fgrey, 1.0);
+	if (GuiTheme_editor (graphics)) {
+		_Graphics_setColour (graphics, MelderColour (fgrey));
+		return;
+	}
 	if (graphics -> screen) {
 		GraphicsScreen me = static_cast <GraphicsScreen> (graphics);
 		#if cairo
@@ -112,8 +118,10 @@ static void highlight (Graphics graphics, integer x1DC, integer x2DC, integer y1
 			if (! highlightBrush)
 				highlightBrush = CreateSolidBrush (RGB (255, 210, 210));
 			SelectPen (my d_gdiGraphicsContext, GetStockPen (NULL_PEN));
-			SelectBrush (my d_gdiGraphicsContext, highlightBrush);
-			SetROP2 (my d_gdiGraphicsContext, R2_MASKPEN);   // using a built-in pixel-combination formula; both R2_NOTXORPEN and R2_MASKPEN make some sense
+			const bool darkTheme = GuiTheme_editor (graphics) && GuiTheme_get() == 3;
+			SetDCBrushColor (my d_gdiGraphicsContext, RGB (48, 16, 16));
+			SelectBrush (my d_gdiGraphicsContext, darkTheme ? (HBRUSH) GetStockObject (DC_BRUSH) : highlightBrush);
+			SetROP2 (my d_gdiGraphicsContext, darkTheme ? R2_MERGEPEN : R2_MASKPEN);   // using a built-in pixel-combination formula; both R2_NOTXORPEN and R2_MASKPEN make some sense
 			Rectangle (my d_gdiGraphicsContext, x1DC, y2DC, x2DC + 1, y1DC + 1);
 			SetROP2 (my d_gdiGraphicsContext, R2_COPYPEN);
 			SelectPen (my d_gdiGraphicsContext, GetStockPen (BLACK_PEN));
@@ -172,8 +180,10 @@ static void highlight2 (Graphics graphics, integer x1DC, integer x2DC, integer y
 			if (! highlightBrush)
 				highlightBrush = CreateSolidBrush (RGB (255, 210, 210));
 			SelectPen (my d_gdiGraphicsContext, GetStockPen (NULL_PEN));
-			SelectBrush (my d_gdiGraphicsContext, highlightBrush);
-			SetROP2 (my d_gdiGraphicsContext, R2_MASKPEN);
+			const bool darkTheme = GuiTheme_editor (graphics) && GuiTheme_get() == 3;
+			SetDCBrushColor (my d_gdiGraphicsContext, RGB (48, 16, 16));
+			SelectBrush (my d_gdiGraphicsContext, darkTheme ? (HBRUSH) GetStockObject (DC_BRUSH) : highlightBrush);
+			SetROP2 (my d_gdiGraphicsContext, darkTheme ? R2_MERGEPEN : R2_MASKPEN);
 			Rectangle (my d_gdiGraphicsContext, x1DC, y2DC, x2DC + 1, y2DC_inner + 1);
 			Rectangle (my d_gdiGraphicsContext, x1DC, y2DC_inner, x1DC_inner + 1, y1DC_inner + 1);
 			Rectangle (my d_gdiGraphicsContext, x2DC_inner, y2DC_inner, x2DC + 1, y1DC_inner + 1);

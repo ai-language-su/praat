@@ -794,9 +794,18 @@ static void cb_TextGridEditor_publication (Editor /* editor */, autoDaata public
 		Melder_flushError ();
 	}
 }
+static integer workspaceSoundId (Sound sound) {
+	if (sound)
+		for (integer i = 1; i <= theCurrentPraatObjects -> n; ++ i)
+			if (theCurrentPraatObjects -> list [i].object == sound)
+				return theCurrentPraatObjects -> list [i].id;
+	return 0;
+}
+
 DIRECT (EDITOR_ONE_WITH_ONE_TextGrid_viewAndEdit) {
 	EDITOR_ONE_WITH_ONE (a,TextGrid, Sound)   // Sound may be null
 		autoTextGridEditor editor = TextGridEditor_create (ID_AND_FULL_NAME, me, you, nullptr, nullptr);
+		editor -> workspaceSoundId = workspaceSoundId (you);
 		Editor_setPublicationCallback (editor.get(), cb_TextGridEditor_publication);
 	EDITOR_ONE_WITH_ONE_END
 }
@@ -807,6 +816,7 @@ FORM (EDITOR_ONE_WITH_ONE_TextGrid_viewAndEditWithCallback, U"TextGrid: View & E
 DO
 	EDITOR_ONE_WITH_ONE (a,TextGrid, Sound)   // Sound may be null
 		autoTextGridEditor editor = TextGridEditor_create (ID_AND_FULL_NAME, me, you, nullptr, callbackText);
+		editor -> workspaceSoundId = workspaceSoundId (you);
 		Editor_setPublicationCallback (editor.get(), cb_TextGridEditor_publication);
 	EDITOR_ONE_WITH_ONE_END
 }
@@ -824,6 +834,7 @@ DIRECT (WINDOW_TextGrid_LongSound_viewAndEdit) {
 	LOOP if (CLASS == classTextGrid) {
 		iam_LOOP (TextGrid);
 		autoTextGridEditor editor = TextGridEditor_create (ID_AND_FULL_NAME, me, longSound, nullptr, nullptr);
+		editor -> workspaceSoundId = theCurrentPraatObjects -> list [ilongSound].id;
 		Editor_setPublicationCallback (editor.get(), cb_TextGridEditor_publication);
 		praat_installEditor (editor.get(), IOBJECT);
 		editor.releaseToUser();
@@ -847,6 +858,7 @@ DIRECT (WINDOW_TextGrid_SpellingChecker_viewAndEdit) {
 	LOOP if (CLASS == classTextGrid) {
 		iam_LOOP (TextGrid);
 		autoTextGridEditor editor = TextGridEditor_create (ID_AND_FULL_NAME, me, sound, spellingChecker, nullptr);
+		editor -> workspaceSoundId = workspaceSoundId (sound);
 		praat_installEditor2 (editor.get(), IOBJECT, ispellingChecker);
 		editor.releaseToUser();
 	}
@@ -869,6 +881,7 @@ DIRECT (WINDOW_TextGrid_LongSound_SpellingChecker_viewAndEdit) {
 	LOOP if (CLASS == classTextGrid) {
 		iam_LOOP (TextGrid);
 		autoTextGridEditor editor = TextGridEditor_create (ID_AND_FULL_NAME, me, longSound, spellingChecker, nullptr);
+		editor -> workspaceSoundId = theCurrentPraatObjects -> list [ilongSound].id;
 		praat_installEditor2 (editor.get(), IOBJECT, ispellingChecker);
 		editor.releaseToUser();
 	}

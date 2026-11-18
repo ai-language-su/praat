@@ -22,12 +22,25 @@
 #include "ScriptEditor.h"
 #include "NotebookEditor.h"
 #include "ButtonEditor.h"
+#include "BatchAnalysis.h"
+#include "CommandSearchWindow.h"
+#include "praat_session.h"
+#include "GuiTheme.h"
 #include "DataEditor.h"
 #include "site.h"
 #include "GraphicsP.h"
 #include "DemoEditor.h"
+#if defined (_WIN32)
+	#include "GuiP.h"
+	#include <commctrl.h>
+	#include <shellapi.h>
+	#include <vector>
+#endif
 
 #define EDITOR  theCurrentPraatObjects -> list [IOBJECT]. editors
+
+void CorpusSearchWindow_show ();
+void AnnotationTemplatesWindow_show ();
 
 /********** Callbacks of the fixed buttons. **********/
 
@@ -114,6 +127,7 @@ DIRECT (PRAAT__Inspect) {
 /********** The fixed menus. **********/
 
 static GuiMenu praatMenu, editMenu, windowMenu, newMenu, readMenu, goodiesMenu, preferencesMenu, technicalMenu, applicationHelpMenu, helpMenu;
+static GuiMenu projectMenu, toolsMenu;
 
 GuiMenu praat_objects_resolveMenu (conststring32 menu) {
 	return
@@ -124,8 +138,10 @@ GuiMenu praat_objects_resolveMenu (conststring32 menu) {
 		#endif
 		str32equ (menu, U"New") || str32equ (menu, U"Create") ? newMenu :
 		str32equ (menu, U"Open") || str32equ (menu, U"Read") ? readMenu :
+		str32equ (menu, U"Tools") ? toolsMenu :
 		str32equ (menu, U"Help") ? helpMenu :
 		str32equ (menu, U"Goodies") ? goodiesMenu :
+		str32equ (menu, U"Project") ? projectMenu :
 		str32equ (menu, U"Settings") || str32equ (menu, U"Preferences") ? preferencesMenu :
 		str32equ (menu, U"Technical") ? technicalMenu :
 		#ifdef macintosh
@@ -137,6 +153,24 @@ GuiMenu praat_objects_resolveMenu (conststring32 menu) {
 }
 
 /********** Callbacks of the Praat menu. **********/
+
+DIRECT (PRAAT__BatchAnalysis) {
+	PRAAT
+		BatchAnalysisWindow_show ();
+	PRAAT_END
+}
+
+DIRECT (PRAAT__CorpusSearch) {
+	PRAAT
+		CorpusSearchWindow_show ();
+	PRAAT_END
+}
+
+DIRECT (PRAAT__AnnotationTemplates) {
+	PRAAT
+		AnnotationTemplatesWindow_show ();
+	PRAAT_END
+}
 
 DIRECT (PRAAT__About) {
 	PRAAT
@@ -272,6 +306,92 @@ DO
 }
 
 /********** Callbacks of the Settings menu. **********/
+
+FORM (SETTINGS__Appearance, U"Appearance settings", nullptr) {
+	OPTIONMENU (appearance, U"Theme", 1)
+		OPTION (U"Classic")
+		OPTION (U"Light")
+		OPTION (U"Dark")
+		OPTION (U"Warm")
+	BOOLEAN (showButtonIcons, U"Show button icons", true)
+	COMMENT (U"Changes open windows immediately and remembers your choice.")
+	COMMENT (U"Sound and Spectrum colours adapt; exported figures keep their colours.")
+	COMMENT (U"Dark spectrograms show stronger energy with lighter shading.")
+OK
+	SET_OPTION (appearance, GuiTheme_get ())
+	SET_BOOLEAN (showButtonIcons, GuiTheme_buttonIcons ())
+DO
+	PREFS
+		GuiTheme_set (appearance);
+		GuiTheme_setButtonIcons (showButtonIcons);
+	PREFS_END
+}
+
+DIRECT (PRAAT__RestoreSavedSession) {
+	PRAAT
+		praat_session_choose (false);
+	PRAAT_END
+}
+
+DIRECT (PRAAT__NewProject) {
+	PRAAT
+		praat_project_new ();
+	PRAAT_END
+}
+
+FORM_READ (PRAAT__OpenProject, U"Open Praat project", nullptr, false) {
+	praat_project_open (file, _sendingForm_ != nullptr);
+	END_NO_NEW_DATA
+}
+
+FORM_SAVE (PRAAT__SaveProjectAs, U"Save Praat project as", nullptr, U"Untitled.PraatProject") {
+	praat_project_saveAs (file, _sendingForm_ != nullptr);
+	END_NO_NEW_DATA
+}
+
+FORM_SAVE (PRAAT__PackageProject, U"Package Praat project", nullptr, U"PraatProject.zip") {
+	praat_project_package (file, _sendingForm_ != nullptr);
+	END_NO_NEW_DATA
+}
+
+DIRECT (PRAAT__SaveProject) {
+	PRAAT
+		if (! praat_project_save ())
+			PRAAT__SaveProjectAs (nullptr, 0, nullptr, nullptr, nullptr, U"Save project as...", false, nullptr, nullptr);
+	PRAAT_END
+}
+
+FORM (SETTINGS__SessionSavingSettings, U"Session saving settings", nullptr) {
+	BOOLEAN (saveSession, U"Enable automatic recovery backups", true)
+	#if motif
+		BOOLEAN (periodicAutosave, U"Also autosave while working", true)
+		NATURAL (autosaveMinutes, U"Autosave interval (minutes)", U"5")
+	#endif
+	NATURAL (backupsToKeep, U"Number of backups to keep (1-200)", U"200")
+	COMMENT (U"Keeps Objects and unsaved scripts/notebooks in separate backups.")
+	COMMENT (U"Each save gets a new backup; removes the oldest at the limit.")
+	COMMENT (U"Large Sounds can use substantial disk space.")
+	COMMENT (U"LongSound source files must stay available.")
+	#if motif
+		COMMENT (U"At startup, choose a backup or start with an empty workspace.")
+	#endif
+OK
+	SET_BOOLEAN (saveSession, praat_session_isEnabled ())
+	#if motif
+		SET_BOOLEAN (periodicAutosave, praat_session_autosaveEnabled ())
+		SET_INTEGER (autosaveMinutes, praat_session_autosaveMinutes ())
+	#endif
+	SET_INTEGER (backupsToKeep, praat_session_backupsToKeep ())
+DO
+	PREFS
+		#if motif
+			praat_session_setAutosaveSettings (periodicAutosave, autosaveMinutes, backupsToKeep);
+		#else
+			praat_session_setAutosaveSettings (praat_session_autosaveEnabled (), praat_session_autosaveMinutes (), backupsToKeep);
+		#endif
+		praat_session_setEnabled (saveSession);
+	PREFS_END
+}
 
 FORM (SETTINGS__TextReadingSettings, U"Text reading settings", U"Unicode") {
 	CHOICE_ENUM (kMelder_textInputEncoding, encodingOf8BitTextFiles,
@@ -696,6 +816,7 @@ void praat_show () {
 	praat_sensitivizeFixedButtonCommand (U"Info", theCurrentPraatObjects -> totalSelection == 1);
 	praat_sensitivizeFixedButtonCommand (U"Inspect", theCurrentPraatObjects -> totalSelection != 0);
 	praat_actions_show ();
+	CommandSearchWindow_refresh ();
 	if (theCurrentPraatApplication == & theForegroundPraatApplication && theReferenceToTheOnlyButtonEditor)
 		Editor_dataChanged (theReferenceToTheOnlyButtonEditor, nullptr);
 }
@@ -753,6 +874,45 @@ static void cb_finishedOpeningDocuments () {
 		Melder_flushError ();
 	}
 }
+
+#if defined (_WIN32)
+static LRESULT CALLBACK objectsFileDropProc (HWND window, UINT message, WPARAM wParam, LPARAM lParam,
+		UINT_PTR subclassId, DWORD_PTR /* referenceData */)
+{
+	if (message == WM_DROPFILES) {
+		HDROP drop = reinterpret_cast <HDROP> (wParam);
+		const UINT numberOfFiles = DragQueryFileW (drop, 0xFFFFFFFF, nullptr, 0);
+		for (UINT ifile = 0; ifile < numberOfFiles; ifile ++) {
+			try {
+				const UINT length = DragQueryFileW (drop, ifile, nullptr, 0);
+				std::vector <wchar_t> path (length + 1);
+				if (DragQueryFileW (drop, ifile, path.data(), length + 1) != length)
+					Melder_throw (U"Cannot retrieve dropped file name.");
+				structMelderFile file { };
+				Melder_pathToFile (Melder_peekWto32 (path.data()), & file);
+				cb_openDocument (& file);
+			} catch (MelderError) {
+				Melder_flushError (U"Cannot open dropped file.");
+			}
+		}
+		DragFinish (drop);
+		cb_finishedOpeningDocuments ();
+		return 0;
+	}
+	if (message == WM_NCDESTROY)
+		RemoveWindowSubclass (window, objectsFileDropProc, subclassId);
+	return DefSubclassProc (window, message, wParam, lParam);
+}
+
+void praat_objects_enableFileDrop (GuiWindow window, GuiList list) {
+	HWND windows [] = { window -> d_xmShell -> window, list -> d_widget -> window };
+	for (HWND target : windows) {
+		if (! SetWindowSubclass (target, objectsFileDropProc, 1, 0))
+			Melder_throw (U"Cannot enable file dropping in the Objects window.");
+		DragAcceptFiles (target, TRUE);
+	}
+}
+#endif
 
 #if cocoa
 DIRECT (PRAAT__cut) {
@@ -819,12 +979,16 @@ void praat_addMenus (GuiWindow window) {
 		newMenu = GuiMenu_createInWindow (window, U"New", 0);
 		readMenu = GuiMenu_createInWindow (window, U"Open", 0);
 		praat_actions_createWriteMenu (window);
+		toolsMenu = GuiMenu_createInWindow (window, U"Tools", 0);
 		#ifdef macintosh
 			applicationHelpMenu = GuiMenu_createInWindow (nullptr, U"Help", 0);
 		#endif
 		helpMenu = GuiMenu_createInWindow (window, U"Help", 0);
 	}
 	
+	praat_addMenuCommand (U"Objects", U"Tools", U"Batch Analysis...", nullptr, GuiMenu_NO_API, PRAAT__BatchAnalysis);
+	praat_addMenuCommand (U"Objects", U"Tools", U"Search TextGrids...", nullptr, GuiMenu_NO_API, PRAAT__CorpusSearch);
+	praat_addMenuCommand (U"Objects", U"Tools", U"Annotation Templates...", nullptr, GuiMenu_NO_API, PRAAT__AnnotationTemplates);
 	MelderString_append (& itemTitle_about, U"About ", Melder_upperCaseAppName());
 	praat_addMenuCommand (U"Objects", U"Praat", itemTitle_about.string, nullptr, GuiMenu_UNHIDABLE,
 			PRAAT__About);
@@ -883,6 +1047,20 @@ void praat_addMenus (GuiWindow window) {
 
 	menuItem = praat_addMenuCommand (U"Objects", U"Praat", U"Settings", nullptr, GuiMenu_UNHIDABLE, nullptr);
 	preferencesMenu = menuItem ? menuItem -> d_menu : nullptr;
+	#if defined (_WIN32)
+		praat_addMenuCommand (U"Objects", U"Settings", U"Appearance settings...", nullptr, 0, SETTINGS__Appearance);
+	#endif
+	menuItem = praat_addMenuCommand (U"Objects", U"Praat", U"Project", nullptr, GuiMenu_UNHIDABLE, nullptr);
+	projectMenu = menuItem ? menuItem -> d_menu : nullptr;
+	praat_addMenuCommand (U"Objects", U"Project", U"New project", nullptr, GuiMenu_NO_API, PRAAT__NewProject);
+	praat_addMenuCommand (U"Objects", U"Project", U"Open project...", nullptr, GuiMenu_NO_API, PRAAT__OpenProject);
+	praat_addMenuCommand (U"Objects", U"Project", U"Save project", nullptr, GuiMenu_NO_API | 'S', PRAAT__SaveProject);
+	praat_addMenuCommand (U"Objects", U"Project", U"Save project as...", nullptr, GuiMenu_NO_API | GuiMenu_SHIFT | 'S', PRAAT__SaveProjectAs);
+	praat_addMenuCommand (U"Objects", U"Project", U"Package project...", nullptr, GuiMenu_NO_API, PRAAT__PackageProject);
+	praat_addMenuCommand (U"Objects", U"Open", U"Open project...", nullptr, GuiMenu_NO_API, PRAAT__OpenProject);
+	praat_addMenuCommand (U"Objects", U"Open", U"Recover workspace... || Restore saved session", nullptr, GuiMenu_NO_API, PRAAT__RestoreSavedSession);
+	praat_addMenuCommand (U"Objects", U"Settings", U"Session saving settings...",
+			nullptr, 0, SETTINGS__SessionSavingSettings);
 	praat_addMenuCommand (U"Objects", U"Settings", U"Buttons...",
 			nullptr, GuiMenu_UNHIDABLE, PRAAT__editButtons);
 	praat_addMenuCommand (U"Objects", U"Settings", U"-- encoding prefs --", nullptr, 0, nullptr);
@@ -937,7 +1115,13 @@ void praat_addMenus (GuiWindow window) {
 			nullptr, 0, WINDOW_ManPages_view);
 }
 
+static void SEARCH_PRAAT (UiForm, integer, Stackel, conststring32, Interpreter, conststring32, bool, void *, Editor) {
+	CommandSearchWindow_show ();
+}
+
 void praat_addMenus2 () {
+	praat_addMenuCommand (U"Objects", U"ApplicationHelp", U"Search Praat...", nullptr, GuiMenu_NO_API, SEARCH_PRAAT);
+	praat_addMenuCommand (U"Picture", U"Help", U"Search Praat...", nullptr, GuiMenu_NO_API, SEARCH_PRAAT);
 	praat_addMenuCommand (U"Objects", U"ApplicationHelp", U"-- manual --", nullptr, 0, nullptr);
 	praat_addMenuCommand (U"Objects", U"ApplicationHelp", U"Go to manual page...",
 			nullptr, 0, PRAAT__GoToManualPage);

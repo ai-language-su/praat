@@ -19,6 +19,7 @@
 #include "praatP.h"
 #include "praat_script.h"
 #include "GuiP.h"
+#include "praat_tooltip.h"
 
 static OrderedOf <structPraat_Command> theCommands;
 void praat_menuCommands_exit_optimizeByLeaking () { theCommands. _ownItems = false; }
@@ -437,6 +438,22 @@ void praat_addFixedButtonCommand_ (GuiForm parent, conststring32 title, UiCallba
 	} else {
 		GuiThing button = my button = GuiButton_create (parent, x, x + 82, -y - Gui_PUSHBUTTON_HEIGHT, -y,
 			title, gui_button_cb_menu, me.get(), 0);
+		conststring32 summary =
+			str32equ (title, U"Rename...") ? U"Change the name shown for the selected object. Its data stays the same." :
+			str32equ (title, U"Copy...") ? U"Make a separate copy of the selected object. You can edit the copy without changing the original." :
+			str32equ (title, U"Inspect") ? U"Look inside the selected object's stored data and structure. This is mainly useful for detailed inspection." :
+			str32equ (title, U"Info") ? U"Show information about the selected object, such as its properties and measurements." :
+			str32equ (title, U"Remove") ? U"Remove the selected object from this Objects list. This does not delete its original file from your computer." :
+			U"Run this command on the selected object.";
+		conststring32 guide =
+			str32equ (title, U"Rename...") ? U"What happens in Praat? Praat changes the selected object's label in the Objects list. The sound, annotation, or measurements inside the object stay the same, and an original file on disk is not renamed.\nWhy use it? Clear object names help you track an original recording and the results you create from it.\nHow do I use it? Select one object, click Rename, type a new name, and confirm. Look for the same object under its new label." :
+			str32equ (title, U"Copy...") ? U"What happens in Praat? Praat creates another object in the list with the same current contents. The original remains, so you can compare the two or change one while keeping the other. This is a copy in Praat's memory, not a saved disk file.\nWhy use it? Make a copy before experimenting with commands that modify an object.\nHow do I use it? Select an object, click Copy, give the copy a useful name, and select the copy before editing it." :
+			str32equ (title, U"Inspect") ? U"What happens in Praat? Praat opens an inspector of the selected object's internal fields and stored values. This is a technical view of the object in memory, not the normal waveform or annotation editor.\nWhy use it? It helps when you need to examine underlying data or diagnose an unexpected result. For everyday listening or labeling, View & Edit is usually the relevant window.\nHow do I use it? Select an object, click Inspect, and expand fields to look deeper. Closing the inspector does not change the object." :
+			str32equ (title, U"Info") ? U"What happens in Praat? Praat writes properties of the selected object in the Info window. For a Sound, this can include its duration and sampling information; other object types report properties relevant to them.\nWhy use it? The Info window gives you numbers and details before you choose an analysis or compare results. It does not open the object for editing.\nHow do I use it? Select an object and click Info. Read the values and units. You can copy the reported text if you need it elsewhere." :
+			str32equ (title, U"Remove") ? U"What happens in Praat? Praat removes the selected object from its current Objects list. It does not delete the source file from your computer. Changes kept only in that object can be lost if you have not saved or exported them.\nWhy use it? Clear temporary results and keep the list easy to navigate.\nHow do I use it? Select the exact object and click Remove. Save work you need to keep before removing it." :
+			U"What happens in Praat? This button acts on the selected object in the Objects list.\nHow do I use it? Select an object, click the button, and read any settings before confirming.";
+		GuiButton_setTooltip ((GuiButton) button, Melder_cat (summary, U"\n____________________________\n",
+			praat_boldTooltipQuestions (guide). c_str()));
 		GuiThing_setSensitive (button, false);
 		GuiThing_show (button);
 	}
@@ -616,3 +633,13 @@ void praat_menuCommands_writeC (bool isInHeaderFile, bool includeCreateAPI, bool
 }
 
 /* End of file praat_menuCommands.cpp */
+
+bool praat_searchActivateFixed (integer id) {
+    for (integer i = 1; i <= theCommands.size; ++ i) {
+        Praat_Command command = theCommands.at [i];
+        if (command -> searchId == id && command -> executable) {
+            do_menu (command, false); return true;
+        }
+    }
+    return false;
+}

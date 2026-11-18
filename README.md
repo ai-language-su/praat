@@ -1,5 +1,19 @@
 # Praat: doing phonetics by computer
 
+This is **AI Language SU’s unofficial Windows-focused fork of Praat**. It is
+based on upstream Praat 7.0.03 and includes modifications dated 2026-11-18.
+The combined application is distributed under the GNU General Public License,
+version 3 or later. See the [GPLv3 text](docs/manual/General_Public_License__version_3.html)
+and the [upstream acknowledgments and third-party licenses](docs/manual/Acknowledgments.html).
+
+- [Windows releases and matching source](https://github.com/ai-language-su/praat/releases)
+- [Official Praat project](https://github.com/praat/praat.github.io)
+- [Windows build instructions](HOW_TO_BUILD_ONE.md#1-developing-praat-for-windows)
+
+The fork adds workspace autosave and recovery, named and portable projects,
+Search Praat, editor help and Windows appearance settings, Batch Analysis with
+reusable presets, corpus TextGrid search, and annotation templates.
+
 Welcome to Praat! Praat is a speech analysis tool used for doing phonetics by computer.
 Praat can analyse, synthesize, and manipulate speech, and create high-quality pictures for your publications.
 Praat was created by Paul Boersma and David Weenink of the Institute of Phonetics Sciences of the University of Amsterdam.

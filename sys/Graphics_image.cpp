@@ -17,6 +17,7 @@
  */
 
 #include "GraphicsP.h"
+#include "GuiTheme.h"
 
 #include "../fon/Photo.h"
 
@@ -43,6 +44,13 @@ static void _GraphicsScreen_cellArrayOrImage (GraphicsScreen me,
 	integer clipx1, integer clipx2, integer clipy1, integer clipy2, bool interpolate)
 {
 	/*double t=Melder_clock();*/
+	#if gdi
+		COLORREF themeGreys [256];
+		for (int i = 0; i < 256; ++ i) {
+			const auto c = GuiTheme_colour (me, MelderColour (i / 255.0));
+			themeGreys [i] = RGB (c.red * 255, c.green * 255, c.blue * 255);
+		}
+	#endif
 	integer nx = ix2 - ix1 + 1;   /* The number of cells along the horizontal axis. */
 	integer ny = iy2 - iy1 + 1;   /* The number of cells along the vertical axis. */
 	double dx = (double) (x2DC - x1DC) / (double) nx;   /* Horizontal pixels per cell. Positive. */
@@ -74,11 +82,7 @@ static void _GraphicsScreen_cellArrayOrImage (GraphicsScreen me,
 					grey [igrey] = cairo_pattern_create_rgb (v, v, v);
 				}
 			#elif gdi
-				static HBRUSH greyBrush [256];
 				RECT rect;
-				if (! greyBrush [0])
-					for (int igrey = 0; igrey <= 255; igrey ++)
-						greyBrush [igrey] = CreateSolidBrush (RGB (igrey, igrey, igrey));   // once
 			#elif quartz
 				CGContextSetAlpha (my d_macGraphicsContext, 1.0);
 				CGContextSetBlendMode (my d_macGraphicsContext, kCGBlendModeNormal);
@@ -128,7 +132,8 @@ static void _GraphicsScreen_cellArrayOrImage (GraphicsScreen me,
 						#elif gdi
 							integer value = offset - scale * ( ! NUMisEmpty (z_float) ? z_float [iy] [ix] : z_byte [iy] [ix] );
 							rect. left = left; rect. right = right;
-							FillRect (my d_gdiGraphicsContext, & rect, greyBrush [value <= 0 ? 0 : value >= 255 ? 255 : value]);
+							SetDCBrushColor (my d_gdiGraphicsContext, themeGreys [value <= 0 ? 0 : value >= 255 ? 255 : value]);
+							FillRect (my d_gdiGraphicsContext, & rect, (HBRUSH) GetStockObject (DC_BRUSH));
 						#elif quartz
 							double value = offset - scale * ( ! NUMisEmpty (z_float) ? z_float [iy] [ix] : z_byte [iy] [ix] );
 							double igrey = ( value <= 0 ? 0 : value >= 255 ? 255 : value ) / 255.0;
@@ -216,9 +221,9 @@ static void _GraphicsScreen_cellArrayOrImage (GraphicsScreen me,
 			#define PUT_PIXEL \
 				if (1) { \
 					unsigned char kar = value <= 0 ? 0 : value >= 255 ? 255 : (int) value; \
-					*pixelAddress ++ = kar; \
-					*pixelAddress ++ = kar; \
-					*pixelAddress ++ = kar; \
+					*pixelAddress ++ = GetBValue (themeGreys [kar]); \
+					*pixelAddress ++ = GetGValue (themeGreys [kar]); \
+					*pixelAddress ++ = GetRValue (themeGreys [kar]); \
 					*pixelAddress ++ = 0; \
 				}
 		#elif quartz

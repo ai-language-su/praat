@@ -17,6 +17,7 @@
  */
 
 #include "SoundArea.h"
+#include "EditorHoverHelp.h"
 #include "LongSoundArea.h"
 #include "../kar/UnicodeData.h"
 #include "Sound_and_MixingMatrix.h"
@@ -52,7 +53,7 @@ static void SoundArea_drawCursorFunctionValue (SoundArea me, double yWC, constst
 	Graphics_line (my graphics(), my startWindow(), yWC, 0.99 * my startWindow() + 0.01 * my endWindow(), yWC);
 	Graphics_fillCircle_mm (my graphics(), 0.5 * (my startSelection() + my endSelection()), yWC, 1.5);
 	Graphics_setTextAlignment (my graphics(), Graphics_RIGHT, Graphics_HALF);
-	Graphics_text (my graphics(), my startWindow(), yWC,   yWC_string, units);
+	Graphics_textWithHelp (my graphics(), EditorHoverHelp::waveformCursor, my startWindow(), yWC, yWC_string, units);
 }
 
 void structSoundArea :: v_drawInside () {
@@ -185,26 +186,27 @@ void SoundArea_draw (SoundArea me) {
 			maximum += 1.0;
 		}
 		Graphics_setWindow (my graphics(), my startWindow(), my endWindow(), minimum, maximum);
+		GuiHoverHelp_rectangle (my graphics(), my startWindow(), my endWindow(), minimum, maximum, EditorHoverHelp::waveformPlot);
 		Graphics_setColour (my graphics(), DataGui_defaultForegroundColour (me, false));
 		if (horizontal) {
 			Graphics_setTextAlignment (my graphics(), Graphics_RIGHT, Graphics_HALF);
 			const double mid = 0.5 * (minimum + maximum);
-			Graphics_text (my graphics(), my startWindow(), mid, Melder_graphicalHalf (mid));
+			Graphics_textWithHelp (my graphics(), EditorHoverHelp::waveformRange, my startWindow(), mid, Melder_graphicalHalf (mid));
 		} else {
 			if (! cursorVisible || isundef (cursorFunctionValue) || Graphics_dyWCtoMM (my graphics(), cursorFunctionValue - minimum) > 4.0) {
 				Graphics_setTextAlignment (my graphics(), Graphics_RIGHT, ichan == lastVisibleChannel? Graphics_HALF : Graphics_BOTTOM);
-				Graphics_text (my graphics(), my startWindow(), minimum, Melder_graphicalHalf (minimum));
+				Graphics_textWithHelp (my graphics(), EditorHoverHelp::waveformRange, my startWindow(), minimum, Melder_graphicalHalf (minimum));
 			}
 			if (! cursorVisible || isundef (cursorFunctionValue) || Graphics_dyWCtoMM (my graphics(), maximum - cursorFunctionValue) > 4.0) {
 				Graphics_setTextAlignment (my graphics(), Graphics_RIGHT, ichan == firstVisibleChannel ? Graphics_HALF : Graphics_TOP);
-				Graphics_text (my graphics(), my startWindow(), maximum, Melder_graphicalHalf (maximum));
+				Graphics_textWithHelp (my graphics(), EditorHoverHelp::waveformRange, my startWindow(), maximum, Melder_graphicalHalf (maximum));
 			}
 		}
 		if (minimum < 0.0 && maximum > 0.0 && ! horizontal) {
 			Graphics_setWindow (my graphics(), 0.0, 1.0, minimum, maximum);
 			if (! cursorVisible || isundef (cursorFunctionValue) || fabs (Graphics_dyWCtoMM (my graphics(), cursorFunctionValue - 0.0)) > 3.5) {
 				Graphics_setTextAlignment (my graphics(), Graphics_RIGHT, Graphics_HALF);
-				Graphics_text (my graphics(), 0.0, 0.0, U"0");
+				Graphics_textWithHelp (my graphics(), EditorHoverHelp::waveformZero, 0.0, 0.0, U"0");
 			}
 			Graphics_setLineType (my graphics(), Graphics_DOTTED);
 			Graphics_line (my graphics(), 0.0, 0.0, 1.0, 0.0);
@@ -228,7 +230,7 @@ void SoundArea_draw (SoundArea me) {
 			else if (numberOfChannels >= 8 && ichan - my channelOffset == 8 && ichan < numberOfChannels)
 				MelderString_append (& channelLabel, U"  " UNITEXT_DOWNWARDS_ARROW);
 			Graphics_setWindow (my graphics(), 0.0, 1.0, 0.0, 1.0);
-			Graphics_text (my graphics(), 1.0, 0.5, channelLabel.string);
+			Graphics_textWithHelp (my graphics(), EditorHoverHelp::channel, 1.0, 0.5, channelLabel.string);
 		}
 		/*
 			Draw a very thin separator line underneath.

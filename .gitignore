@@ -33,6 +33,9 @@ praat
 Praat
 Praat.exe
 Praat.app
+/Praat-*.exe
+/Praat-Windows-x64-custom.zip
+__pycache__/
 
 # files created by R scripts in the test folders
 .Rdata

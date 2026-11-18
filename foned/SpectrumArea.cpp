@@ -17,6 +17,7 @@
  */
 
 #include "SpectrumArea.h"
+#include "EditorHoverHelp.h"
 #include "EditorM.h"
 
 Thing_implement (SpectrumArea, FunctionArea, 0);
@@ -64,6 +65,7 @@ void structSpectrumArea :: v1_info () {
 void structSpectrumArea :: v_drawInside () {
 	Spectrum_drawInside (our spectrum(), our graphics(), our startWindow(), our endWindow(),
 			our minimum(), our maximum());
+	GuiHoverHelp_rectangle (our graphics(), our startWindow(), our endWindow(), our minimum(), our maximum(), EditorHoverHelp::spectrumPlot);
 	Graphics_setColour (our graphics(), Melder_BLUE);
 	FunctionArea_drawRightMark (this, our maximum(),
 			Melder_fixed (our maximum(), 1), U" dB", Graphics_HALF);

@@ -387,6 +387,7 @@ Thing_declare (GuiShell);
 Thing_declare (GuiWindow);
 
 Thing_define (GuiThing, Thing) {
+	bool searchSensitive = true;   // mirrors sensitivity for command discovery
 	GuiShell d_shell;
 	GuiThing d_parent;
 	GuiObject d_widget;
@@ -461,6 +462,10 @@ Thing_define (GuiButton, GuiControl) {
 	Thing d_activateBoss;
 	GuiMenu d_menu;   // for cascade buttons
 	integer d_sequentalIdInDialog;
+	#if defined (_WIN32)
+		autostring16 d_tooltipText;
+		HWND d_tooltipWindow = nullptr;
+	#endif
 };
 
 /* GuiButton creation flags: */
@@ -483,6 +488,7 @@ GuiButton GuiButton_createShown (GuiForm parent,
 );
 
 void GuiButton_setText (GuiButton me, conststring32 text /* cattable */);
+void GuiButton_setTooltip (GuiButton me, conststring32 text);
 
 /********** GuiCheckButton **********/
 
@@ -801,6 +807,9 @@ Thing_define (GuiMenuItem, GuiThing) {
 	GuiMenu d_menu;
 	GuiMenuItemCallback d_callback;
 	Thing d_boss;
+	#if defined (_WIN32)
+		autostring16 d_tooltipText;
+	#endif
 	#if gtk
 		bool d_callbackBlocked;
 	#endif
@@ -942,6 +951,7 @@ GuiMenuItem GuiMenu_addSeparator (GuiMenu menu);
 
 void GuiMenuItem_check (GuiMenuItem me, bool check);
 void GuiMenuItem_setText (GuiMenuItem me, conststring32 text);
+void GuiMenuItem_setTooltip (GuiMenuItem me, conststring32 text);
 
 /********** GuiOptionMenu **********/
 

@@ -17,6 +17,7 @@
  */
 
 #include "GuiP.h"
+#include "GuiTheme.h"
 #include <locale.h>
 
 Thing_implement (GuiText, GuiControl, 0);
@@ -767,6 +768,7 @@ GuiText GuiText_create (GuiForm parent, int left, int right, int top, int bottom
 			my d_widget -> x, my d_widget -> y, my d_widget -> width, my d_widget -> height,
 			my d_widget -> parent -> window, (HMENU) 1, theGui.instance, nullptr);
 		SetWindowLongPtr (my d_widget -> window, GWLP_USERDATA, (LONG_PTR) my d_widget);
+		GuiTheme_attach (my d_widget -> window);
 		if (! font10) {
 			font10 = CreateFont (13, 0, 0, 0, 0, 0, 0, 0, DEFAULT_CHARSET, 0, 0, 0, 0/*FIXED_PITCH | FF_MODERN*/, /*L"Doulos SIL"*/L"Courier New");
 			font12 = CreateFont (16, 0, 0, 0, 0, 0, 0, 0, DEFAULT_CHARSET, 0, 0, 0, 0/*FIXED_PITCH | FF_MODERN*/, /*L"Doulos SIL"*/L"Courier New");

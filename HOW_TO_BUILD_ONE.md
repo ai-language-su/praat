@@ -42,6 +42,41 @@ run `clangarm64.exe` to get a `clangarm64` shell. In that shell, run `pacman -Sy
 In the same way you can create a `clang64` toolchain (`pacman -S mingw-w64-clang-x86_64-clang`).
 For Intel32, so you can only use the `mingw32` toolchain.
 
+For a new MSYS2 installation, the x64 GCC toolchain and the common build tools can be installed
+from an MSYS2 shell with:
+
+    pacman -Sy --noconfirm
+    pacman -S --needed --noconfirm make pkgconf mingw-w64-x86_64-gcc \
+        mingw-w64-x86_64-gcc-libs mingw-w64-x86_64-headers \
+        mingw-w64-x86_64-crt mingw-w64-x86_64-winpthreads \
+        mingw-w64-x86_64-make mingw-w64-x86_64-pkgconf
+
+The following command builds the x64(v3) Windows edition from a `mingw64` shell.
+The makefile sets `_WIN32_WINNT` for the pointer-input APIs used by Praat; do not
+override `CPPFLAGS` on the make command line, because the subdirectories add their
+own include paths to it.
+
+    export PATH=/mingw64/bin:/usr/bin:$PATH
+    make PRAAT_ARCH=x64v3 PRAAT_COMPILER=gcc -j4
+
+Build the current customized Windows edition as the main executable, `Praat.exe`:
+
+    make PRAAT_ARCH=x64v3 PRAAT_COMPILER=gcc -j4
+
+Use `Praat.exe` for all future feature deliveries. Earlier feature-named executables
+are historical snapshots. Close `Praat.exe` normally before rebuilding it if it is running.
+
+This includes button icons, appearance themes, the earlier interface changes, five-minute periodic autosave
+and normal-exit session saving, with up to 200 completed backups by default.
+See [button icons](docs/BUTTON_ICONS.md) for the icon preference and coverage.
+See [appearance themes](docs/APPEARANCE_THEMES.md) for theme settings and coverage.
+See [the session-saving notes](docs/SESSION_SAVING.md) for behaviour and tests.
+
+For a completely clean rebuild, remove generated object and archive files first, then rerun
+the command above:
+
+    find . -type f \( -name '*.o' -o -name '*.a' -o -name 'Praat.exe' \) -delete
+
 Move the Praat sources folders somewhere in your `/home/yourname` tree,
 perhaps even in four places, e.g. as `/home/yourname/praats-clangarm64`,
 `/home/yourname/praats-clang64v3`, `/home/yourname/praats-clang64v1` and `/home/yourname/praats-mingw32`;

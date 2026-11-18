@@ -17,6 +17,8 @@
  */
 
 #include "FunctionEditor.h"
+#include "EditorHoverHelp.h"
+#include "GuiTheme.h"
 #include "machine.h"
 #include "EditorM.h"
 #include "GuiP.h"
@@ -92,6 +94,10 @@ static void updateGroup (FunctionEditor me, const bool windowMarkersChanged, con
 }
 
 static void drawBackgroundAndData (FunctionEditor me) {
+	// These descriptions are specific to Sound/Spectrum, not all FunctionEditors.
+	if (str32equ (Thing_className (me), U"SoundEditor") || str32equ (Thing_className (me), U"SpectrumEditor"))
+		GuiHoverHelp_begin (my graphics.get());
+	const bool frequencyDomain = str32equ (my v_domainName(), U"frequency");
 	if (Melder_debug == 55)
 		Melder_casual (Thing_messageNameAndAddress (me), U" draw");
 	const bool leftFromWindow = ( my startWindow > my tmin );
@@ -230,7 +236,15 @@ static void drawBackgroundAndData (FunctionEditor me) {
 	for (integer i = 0; i < 8; i ++) {
 		const double left = my rect [i]. left, right = my rect [i]. right;
 		if (left < right)
+		{
 			Graphics_button (my graphics.get(), left, right, my rect [i]. bottom, my rect [i]. top);
+			conststring32 help = i == 0 ? (frequencyDomain ? EditorHoverHelp::frequencyTotal : EditorHoverHelp::timeTotal) :
+				i == 1 ? (frequencyDomain ? EditorHoverHelp::frequencyVisible : EditorHoverHelp::timeVisible) :
+				i == 7 ? (frequencyDomain ? EditorHoverHelp::frequencySelection : EditorHoverHelp::timeSelection) :
+				(i == 2 || i == 3) ? (frequencyDomain ? EditorHoverHelp::hiddenFrequency : EditorHoverHelp::hiddenTime) :
+				(frequencyDomain ? EditorHoverHelp::frequencySegment : EditorHoverHelp::timeSegment);
+			GuiHoverHelp_rectangle (my graphics.get(), left, right, my rect [i]. bottom, my rect [i]. top, help);
+		}
 	}
 
 	/*
@@ -277,10 +291,10 @@ static void drawBackgroundAndData (FunctionEditor me) {
 					*/
 					Graphics_setColour (my graphics.get(), Melder_BLUE);
 					Graphics_setTextAlignment (my graphics.get(), Graphics_LEFT, Graphics_HALF);
-					Graphics_text (my graphics.get(), left, 0.5 * (bottom + top) - verticalCorrection,
+					Graphics_textWithHelp (my graphics.get(), frequencyDomain ? EditorHoverHelp::frequencyStart : EditorHoverHelp::timeStart, left, 0.5 * (bottom + top) - verticalCorrection,
 							Melder_fixed (my startWindow, my v_fixedPrecision_long ()));
 					Graphics_setTextAlignment (my graphics.get(), Graphics_RIGHT, Graphics_HALF);
-					Graphics_text (my graphics.get(), right, 0.5 * (bottom + top) - verticalCorrection,
+					Graphics_textWithHelp (my graphics.get(), frequencyDomain ? EditorHoverHelp::frequencyEnd : EditorHoverHelp::timeEnd, right, 0.5 * (bottom + top) - verticalCorrection,
 							Melder_fixed (my endWindow, my v_fixedPrecision_long ()));
 					Graphics_setColour (my graphics.get(), Melder_BLACK);
 					Graphics_setTextAlignment (my graphics.get(), Graphics_CENTRE, Graphics_HALF);
@@ -333,17 +347,17 @@ static void drawBackgroundAndData (FunctionEditor me) {
 	Graphics_setColour (my graphics.get(), Melder_RED);
 	if (cursorIsVisible) {
 		Graphics_setTextAlignment (my graphics.get(), Graphics_CENTRE, Graphics_BOTTOM);
-		Graphics_text (my graphics.get(), my startSelection, my height_pxlt - (my TOP_MARGIN + my space*0.9) - verticalCorrection * 7,
+		Graphics_textWithHelp (my graphics.get(), frequencyDomain ? EditorHoverHelp::frequencyCursor : EditorHoverHelp::timeCursor, my startSelection, my height_pxlt - (my TOP_MARGIN + my space*0.9) - verticalCorrection * 7,
 				Melder_fixed (my startSelection, my v_fixedPrecision_long()));
 	}
 	if (startIsVisible && selectionIsNonempty) {
 		Graphics_setTextAlignment (my graphics.get(), Graphics_RIGHT, Graphics_HALF);
-		Graphics_text (my graphics.get(), my startSelection, my height_pxlt - (my TOP_MARGIN + my space/2) - verticalCorrection,
+		Graphics_textWithHelp (my graphics.get(), frequencyDomain ? EditorHoverHelp::frequencyCursor : EditorHoverHelp::timeCursor, my startSelection, my height_pxlt - (my TOP_MARGIN + my space/2) - verticalCorrection,
 				Melder_fixed (my startSelection, my v_fixedPrecision_long()));
 	}
 	if (endIsVisible && selectionIsNonempty) {
 		Graphics_setTextAlignment (my graphics.get(), Graphics_LEFT, Graphics_HALF);
-		Graphics_text (my graphics.get(), my endSelection, my height_pxlt - (my TOP_MARGIN + my space/2) - verticalCorrection,
+		Graphics_textWithHelp (my graphics.get(), frequencyDomain ? EditorHoverHelp::frequencyCursor : EditorHoverHelp::timeCursor, my endSelection, my height_pxlt - (my TOP_MARGIN + my space/2) - verticalCorrection,
 				Melder_fixed (my endSelection, my v_fixedPrecision_long()));
 	}
 	Graphics_setColour (my graphics.get(), Melder_BLACK);
@@ -1238,6 +1252,8 @@ static void gui_drawingarea_cb_expose (FunctionEditor me, GuiDrawingArea_ExposeE
 	if (! my enableUpdates)
 		return;
 	#ifdef WIN32
+		if (RemovePropW (my drawingArea -> d_widget -> window, L"PraatThemeChanged"))
+			my backgroundIsUpToDate = false;   // also refresh the cached canvas during playback
 		if (my duringPlay) {
 			GraphicsScreen graphics = (GraphicsScreen) my graphics.get();
 			HDC foregroundContext = graphics -> d_gdiGraphicsContext;
@@ -1488,20 +1504,20 @@ void structFunctionEditor :: v_createChildren () {
 	/*
 		Create zoom buttons.
 	*/
-	GuiButton_createShown (our windowForm, x, x + BUTTON_WIDTH, -4 - Gui_PUSHBUTTON_HEIGHT, -4,
-		U"all", gui_button_cb_showAll, this, 0);
+	GuiButton_setTooltip (GuiButton_createShown (our windowForm, x, x + BUTTON_WIDTH, -4 - Gui_PUSHBUTTON_HEIGHT, -4,
+		U"all", gui_button_cb_showAll, this, 0), U"Show the full time or frequency domain. This resets the view without changing the data.");
 	x += BUTTON_WIDTH + BUTTON_SPACING;
-	GuiButton_createShown (our windowForm, x, x + BUTTON_WIDTH, -4 - Gui_PUSHBUTTON_HEIGHT, -4,
-		U"in", gui_button_cb_zoomIn, this, 0);
+	GuiButton_setTooltip (GuiButton_createShown (our windowForm, x, x + BUTTON_WIDTH, -4 - Gui_PUSHBUTTON_HEIGHT, -4,
+		U"in", gui_button_cb_zoomIn, this, 0), U"Zoom in to inspect a smaller part of the time or frequency axis. The data stay unchanged.");
 	x += BUTTON_WIDTH + BUTTON_SPACING;
-	GuiButton_createShown (our windowForm, x, x + BUTTON_WIDTH, -4 - Gui_PUSHBUTTON_HEIGHT, -4,
-		U"out", gui_button_cb_zoomOut, this, 0);
+	GuiButton_setTooltip (GuiButton_createShown (our windowForm, x, x + BUTTON_WIDTH, -4 - Gui_PUSHBUTTON_HEIGHT, -4,
+		U"out", gui_button_cb_zoomOut, this, 0), U"Zoom out to show more of the time or frequency domain. No audio or spectral data are added.");
 	x += BUTTON_WIDTH + BUTTON_SPACING;
-	GuiButton_createShown (our windowForm, x, x + BUTTON_WIDTH, -4 - Gui_PUSHBUTTON_HEIGHT, -4,
-		U"sel", gui_button_cb_zoomToSelection, this, 0);
+	GuiButton_setTooltip (GuiButton_createShown (our windowForm, x, x + BUTTON_WIDTH, -4 - Gui_PUSHBUTTON_HEIGHT, -4,
+		U"sel", gui_button_cb_zoomToSelection, this, 0), U"Zoom to the selected interval or frequency band. Drag to make a selection first.");
 	x += BUTTON_WIDTH + BUTTON_SPACING;
-	GuiButton_createShown (our windowForm, x, x + BUTTON_WIDTH, -4 - Gui_PUSHBUTTON_HEIGHT, -4,
-		U"bak", gui_button_cb_zoomBack, this, 0);
+	GuiButton_setTooltip (GuiButton_createShown (our windowForm, x, x + BUTTON_WIDTH, -4 - Gui_PUSHBUTTON_HEIGHT, -4,
+		U"bak", gui_button_cb_zoomBack, this, 0), U"Return to the preceding zoomed view. This changes the display, not the data or undo history.");
 
 	/*
 		Create scroll bar.
@@ -1516,6 +1532,9 @@ void structFunctionEditor :: v_createChildren () {
 	*/
 	our groupButton = GuiCheckButton_createShown (our windowForm, -80, 0, -4 - Gui_PUSHBUTTON_HEIGHT, -4,
 		U"Group", gui_checkbutton_cb_group, this, group_equalDomain (our tmin, our tmax) ? GuiCheckButton_SET : 0);
+
+	GuiControl_setHoverHelp (our groupButton, EditorHoverHelp::group);
+	GuiControl_setHoverHelp (our scrollBar, U"Scroll the visible time or frequency window. Data outside the view remain in the object; this does not move or edit samples.");
 
 	/*
 		Create optional text field.
@@ -1646,6 +1665,8 @@ void FunctionEditor_init (FunctionEditor me, conststring32 title, Function data)
 		Melder_assert (XtWindow (my drawingArea -> d_widget));
 	#endif
 	my graphics = Graphics_create_xmdrawingarea (my drawingArea);
+	if (str32equ (Thing_className (me), U"SoundEditor") || str32equ (Thing_className (me), U"SpectrumEditor"))
+		GuiTheme_enableEditor (my graphics.get());
 	Graphics_setFontSize (my graphics.get(), 12);
 
 	my updateGeometry (GuiControl_getWidth (my drawingArea), GuiControl_getHeight (my drawingArea));
@@ -1746,6 +1767,9 @@ void FunctionEditor_drawHorizontalHair (FunctionEditor me, double yWC, conststri
 	Graphics_setColour (my graphics.get(), Melder_RED);
 	Graphics_line (my graphics.get(), my startWindow, yWC, my endWindow, yWC);
 	Graphics_setTextAlignment (my graphics.get(), Graphics_RIGHT, Graphics_HALF);
+	if (str32equ (Thing_className (my data()), U"Spectrum"))
+		Graphics_textWithHelp (my graphics.get(), EditorHoverHelp::spectrumCursorLevel, my startWindow, yWC, yWC_string, units);
+	else
 	Graphics_text (my graphics.get(), my startWindow, yWC,   yWC_string, units);
 }
 

@@ -21,6 +21,7 @@
 #include "../kar/longchar.h"
 #include "machine.h"
 #include "GuiP.h"
+#include "praat_tooltip.h"
 
 #define BUTTON_LEFT  -240
 #define BUTTON_RIGHT -5
@@ -646,6 +647,24 @@ static void gui_button_cb_menu (Praat_Command me, GuiButtonEvent event) {
 	do_menu (me, isModified);
 }
 
+void praat_actions_openSelectionEditor () {
+	for (conststring32 title : { U"View & Edit", U"View & Edit alone", U"View" }) {
+		for (integer i = 1; i <= theActions.size; ++ i) {
+			Praat_Command action = theActions.at [i];
+			if (action -> visible && action -> executable && action -> depth == 0 && ! action -> script &&
+					str32equ (action -> title.get(), title)) {
+				do_menu (action, false);
+				return;
+			}
+		}
+	}
+}
+
+static conststring32 actionMenuTooltip (Praat_Command action) {
+	return Melder_cat (praat_actionSummary (action), U"\n____________________________\n",
+		praat_boldTooltipQuestions (praat_actionGuide (action)). c_str());
+}
+
 void praat_actions_show () {
 	#if defined (macintosh)
 		const int BUTTON_VSPACING = 8;
@@ -749,12 +768,14 @@ void praat_actions_show () {
 						( my executable ? 0 : GuiMenu_INSENSITIVE ),
 						cb_menu, me
 					);
+					GuiMenuItem_setTooltip ((GuiMenuItem) my button, actionMenuTooltip (me));
 				} else {
 					my button = GuiButton_createShown (praat_form,
 						BUTTON_LEFT, BUTTON_RIGHT, y, y + Gui_PUSHBUTTON_HEIGHT,
 						my added ? Melder_cat (U"\u207A", my title.get()) : my title.get(), gui_button_cb_menu,
 						me, ( my executable ? 0 : GuiButton_INSENSITIVE ) | ( my attractive ? GuiButton_ATTRACTIVE : 0 )
 					);
+				GuiButton_setTooltip ((GuiButton) my button, actionMenuTooltip (me));
 					y += Gui_PUSHBUTTON_HEIGHT + BUTTON_VSPACING;
 				}
 			} else if (i == theActions.size || theActions.at [i + 1] -> depth == 0) {
@@ -782,6 +803,7 @@ void praat_actions_show () {
 					);
 					y += Gui_PUSHBUTTON_HEIGHT + BUTTON_VSPACING;
 					my button = currentSubmenu1 -> d_cascadeButton.get();
+					GuiButton_setTooltip ((GuiButton) my button, actionMenuTooltip (me));
 				} else {
 					currentSubmenu2 = GuiMenu_createInMenu (currentSubmenu1, my added ? Melder_cat (U"\u207A", my title.get()) : my title.get(), 0);
 					my button = currentSubmenu2 -> d_menuItem.get();
@@ -1012,3 +1034,15 @@ void praat_actions_writeC (bool isInHeaderFile, bool includeSaveAPI,
 }
 
 /* End of file praat_actions.cpp */
+
+// Resolve the identity again: dynamic buttons and registry positions can change.
+bool praat_searchActivateAction (integer id) {
+    praat_actions_show ();
+    for (integer i = 1; i <= theActions.size; ++ i) {
+        Praat_Command command = theActions.at [i];
+        if (command -> searchId == id && command -> executable) {
+            do_menu (command, false); return true;
+        }
+    }
+    return false;
+}

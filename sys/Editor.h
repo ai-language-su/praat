@@ -38,6 +38,7 @@ typedef MelderCallback <void, structDataGui, EditorCommand, UiForm, integer /*na
 typedef MelderCallback <void, structEditor, EditorCommand, UiForm, integer /*narg*/, Stackel /*args*/, conststring32, Interpreter> EditorCommandCallback;
 
 Thing_define (EditorCommand, Thing) {
+	integer searchId = 0;
 	Editor d_editor;
 	DataGui sender;
 	EditorMenu menu;
@@ -110,6 +111,7 @@ GuiMenuItem DataGuiMenu_addCommand (EditorMenu me, conststring32 itemTitle /* ca
 GuiMenuItem EditorMenu_addCommand (EditorMenu me, conststring32 itemTitle /* cattable */, uint32 flags,
 		EditorCommandCallback commandCallback);
 GuiMenuItem EditorCommand_getItemWidget (EditorCommand me);
+void Editor_activateSearchCommand (EditorCommand command);
 
 EditorMenu Editor_addMenu (Editor me, conststring32 menuTitle, uint32 flags);
 GuiObject EditorMenu_getMenuWidget (EditorMenu me);

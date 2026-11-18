@@ -18,6 +18,7 @@
 
 #include "TextGridEditor.h"
 #include "EditorM.h"
+#include <algorithm>
 
 Thing_implement (TextGridEditor, FunctionEditor, 0);
 
@@ -39,6 +40,81 @@ void structTextGridEditor :: v_createMenuItems_help (EditorMenu menu) {
 	EditorMenu_addCommand (menu, U"About special symbols", 0, menu_cb_AboutSpecialSymbols);
 	EditorMenu_addCommand (menu, U"Phonetic symbols", 0, menu_cb_PhoneticSymbols);
 	EditorMenu_addCommand (menu, U"About text styles", 0, menu_cb_AboutTextStyles);
+}
+
+static void menu_cb_LoadAnnotationTemplate (TextGridEditor me, EDITOR_ARGS) {
+	const auto files = GuiFileSelect_getInfileNames (my windowForm, U"Load annotation template", false);
+	if (! files -> size) return;
+	try {
+		my annotationTemplate = CorpusAnnotations::readTemplate (
+			std::filesystem::u8path (Melder_peek32to8 (files -> at [1] -> string.get())));
+	} catch (const std::exception &error) {
+		Melder_throw (U"Could not load the annotation template: ", Melder_peek8to32_u (error.what()));
+	}
+}
+
+static auto vocabularyFor (TextGridEditor me, Function tier) {
+	const auto name = tier -> name ? tier -> name.get() : U"";
+	return std::find_if (my annotationTemplate.begin(), my annotationTemplate.end(), [&] (const auto &candidate) {
+		return candidate.name == name && candidate.point == (tier -> classInfo == classTextTier);
+	});
+}
+
+static void applyAllowedLabel (UiForm, integer, Stackel, conststring32, Interpreter, conststring32,
+	bool, void *closure, Editor)
+{
+	const auto me = static_cast<TextGridEditor> (closure);
+	const auto area = my textGridArea().get();
+	const auto tierNumber = area -> selectedTier;
+	Melder_require (tierNumber >= 1 && tierNumber <= my textGrid() -> tiers -> size &&
+			tierNumber == my templateLabelTier && my startSelection == my templateLabelTime,
+		U"The annotation selection changed. Choose an allowed label again.");
+	const auto tier = my textGrid() -> tiers -> at [tierNumber];
+	const auto label = my templateLabelChoices [my templateLabelIndex].get();
+	const auto entry = vocabularyFor (me, tier);
+	Melder_require (entry != my annotationTemplate.end() && std::find (entry -> labels.begin(), entry -> labels.end(), label) != entry -> labels.end(),
+		U"The tier or template changed. Choose an allowed label again.");
+	if (tier -> classInfo == classIntervalTier) {
+		const auto interval = IntervalTier_timeToIndex (static_cast<IntervalTier> (tier), my startSelection);
+		Melder_require (interval, U"Select an interval first.");
+		Editor_save (me, U"Set allowed label");
+		TextGrid_setIntervalText (my textGrid(), tierNumber, interval, label);
+	} else {
+		const auto point = AnyTier_hasPoint (static_cast<TextTier> (tier) -> asAnyTier(), my startSelection);
+		Melder_require (point, U"Select an existing point first.");
+		Editor_save (me, U"Set allowed label");
+		TextGrid_setPointText (my textGrid(), tierNumber, point, label);
+	}
+	FunctionArea_broadcastDataChanged (area);
+	my v_updateText ();
+}
+
+static void menu_cb_ChooseAllowedLabel (TextGridEditor me, EDITOR_ARGS) {
+	Melder_require (! my annotationTemplate.empty(), U"Load an annotation template from the Labels menu first.");
+	const auto tierNumber = my textGridArea() -> selectedTier;
+	Melder_require (tierNumber >= 1 && tierNumber <= my textGrid() -> tiers -> size, U"Select an annotation tier first.");
+	const auto tier = my textGrid() -> tiers -> at [tierNumber];
+	const auto entry = vocabularyFor (me, tier);
+	Melder_require (entry != my annotationTemplate.end() && ! entry -> labels.empty(), U"The template has no allowed-label list for this tier.");
+	if (entry -> point)
+		Melder_require (AnyTier_hasPoint (static_cast<TextTier> (tier) -> asAnyTier(), my startSelection), U"Select an existing point first.");
+	cmd -> d_uiform.reset();
+	my templateLabelChoices = autoSTRVEC ((integer) entry -> labels.size());
+	for (integer i = 1; i <= my templateLabelChoices.size; ++ i)
+		my templateLabelChoices [i] = Melder_dup (entry -> labels [i - 1].c_str());
+	my templateLabelTier = tierNumber;
+	my templateLabelTime = my startSelection;
+	cmd -> d_uiform = UiForm_create (my windowForm, me, U"Choose allowed label", applyAllowedLabel, me, cmd -> itemTitle.get(), nullptr);
+	UiForm_addList (cmd -> d_uiform.get(), & my templateLabelIndex, nullptr, U"label", U"Label", my templateLabelChoices.get(), 1);
+	UiForm_finish (cmd -> d_uiform.get());
+	UiForm_do (cmd -> d_uiform.get(), false);
+}
+
+void structTextGridEditor :: v_createMenus () {
+	TextGridEditor_Parent :: v_createMenus ();
+	const auto menu = Editor_addMenu (this, U"Labels", 0);
+	EditorMenu_addCommand (menu, U"Load annotation template...", 0, menu_cb_LoadAnnotationTemplate);
+	EditorMenu_addCommand (menu, U"Choose allowed label...", 0, menu_cb_ChooseAllowedLabel);
 }
 
 autoTextGridEditor TextGridEditor_create (conststring32 title, TextGrid textGrid,

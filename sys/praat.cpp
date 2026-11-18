@@ -45,6 +45,8 @@
 #include "Strings_.h"
 #include "../kar/UnicodeData.h"
 #include "InfoEditor.h"
+#include "praat_session.h"
+#include "GuiTheme.h"
 
 Thing_implement (Praat_Command, Thing, 0);
 
@@ -470,6 +472,15 @@ static void gui_cb_list_selectionChanged (Thing /* boss */, GuiList_SelectionCha
 	praat_show ();
 }
 
+#if motif
+void praat_actions_openSelectionEditor ();
+static void gui_cb_list_doubleClick (Thing /* boss */, GuiList_DoubleClickEvent event) {
+	Melder_assert (event -> list == praatList_objects);
+	if (! Melder_backgrounding)
+		praat_actions_openSelectionEditor ();
+}
+#endif
+
 void praat_list_renameAndSelect (integer position, conststring32 name) {
 	if (! theCurrentPraatApplication -> batch) {
 		GuiList_replaceItem (praatList_objects, name, position);   // void if name equal
@@ -512,6 +523,9 @@ void praat_removeObject (integer i) {
 
 static void praat_exit (int exit_code) {
 //Melder_setTracing (true);
+	// Back up before any windows or file-based objects are destroyed. A failure cancels Quit.
+	if (exit_code == 0) praat_session_save ();
+	praat_session_stopAutosave ();
 	integer IOBJECT;
 	trace (U"destroy the picture window");
 	praat_picture_exit ();
@@ -866,6 +880,10 @@ FORM (DO_Quit, U"Confirm Quit", U"Quit") {
 	MUTABLE_COMMENT (label2, U"Do you still want to quit?")
 	OK
 {
+	if (praat_session_isActive ()) {
+		praat_exit (0);
+		return;
+	}
 	const bool youHaveObjectsInYourList = ( theCurrentPraatObjects -> n > 0 );
 	const bool youHaveUnsavedScriptsOrNotebooks = ( ScriptEditors_dirty () || NotebookEditors_dirty () );
 	if (youHaveObjectsInYourList || youHaveUnsavedScriptsOrNotebooks) {
@@ -888,7 +906,11 @@ DO
 }
 
 static void cb_quitApplication () {
-	DO_Quit (nullptr, 0, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr);
+	try {
+		DO_Quit (nullptr, 0, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr);
+	} catch (MelderError) {
+		Melder_flushError (U"Praat could not close safely.");
+	}
 }
 
 static void gui_cb_quit (Thing /* me */) {
@@ -1059,6 +1081,8 @@ static void setThePraatLocale () {
 }
 
 static void installPraatShellPreferences () {
+	GuiTheme_prefs ();
+	praat_session_prefs ();
 	praat_statistics_prefs ();   // number of sessions, memory used...
 	praat_picture_prefs ();   // font...
 	Graphics_prefs ();
@@ -2000,7 +2024,13 @@ void praat_init (conststring32 title,
 		GuiLabel_createShown (raam, 3, -250, Machine_getMenuBarBottom () + 5, Machine_getMenuBarBottom () + 5 + Gui_LABEL_HEIGHT, U"Objects:", 0);
 		praatList_objects = GuiList_create (raam, 0, -250, Machine_getMenuBarBottom () + 26, -100, true, U" Objects ");
 		GuiList_setSelectionChangedCallback (praatList_objects, gui_cb_list_selectionChanged, nullptr);
+		#if motif
+			GuiList_setDoubleClickCallback (praatList_objects, gui_cb_list_doubleClick, nullptr);
+		#endif
 		GuiThing_show (praatList_objects);
+		#if defined (_WIN32)
+			praat_objects_enableFileDrop (raam, praatList_objects);
+		#endif
 		praat_addFixedButtons (raam);
 
 		trace (U"creating the dynamic menu in the Objects window");
@@ -2110,6 +2140,7 @@ void praat_run () {
 	if (! praatP.ignorePreferenceFiles) {
 		Preferences_read_i (& prefsFile5);   // Read the old settings first...
 		Preferences_read_i (& prefsFile7);   // ... and the new settings second.
+		GuiTheme_apply ();
 		if (! praatP.dontUsePictureWindow)
 			praat_picture_prefsChanged ();
 		praat_statistics_prefsChanged ();
@@ -2674,6 +2705,12 @@ void praat_run () {
 		praat_sortActions ();
 
 		praatP.phase = praat_HANDLING_EVENTS;
+		try {
+			if (! praatP.userWantsToOpen && ! praatP.userWantsToSend && ! praatP.userWantsToSendOrForm)
+				praat_session_choose (true);
+		} catch (MelderError) {
+			Melder_flushError (U"Praat started, but could not list recovery snapshots.");
+		}
 
 		if (praatP.userWantsToOpen) {
 			/*
@@ -2730,7 +2767,13 @@ void praat_run () {
 			trace (U"locale is ", Melder_peek8to32_u (setlocale (LC_ALL, nullptr)));
 			gtk_main ();
 		#elif motif
+			try {
+				praat_session_startAutosave ();
+			} catch (MelderError) {
+				Melder_flushError (U"Periodic session autosave could not start.");
+			}
 			for (;;) {
+				praat_session_pollAutosave ();
 				XEvent event;
 				GuiNextEvent (& event);
 				XtDispatchEvent (& event);

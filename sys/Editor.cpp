@@ -19,6 +19,7 @@
 #include <time.h>
 #include "ScriptEditor.h"
 #include "machine.h"
+#include "CommandSearchWindow.h"
 #include "EditorM.h"
 #include "praat_script.h"
 
@@ -311,6 +312,7 @@ void Editor_doMenuCommand (Editor me, conststring32 commandTitle, integer narg, 
 /********** class Editor **********/
 
 void structEditor :: v9_destroy () noexcept {
+	CommandSearch_unregisterEditor (this);
 	MelderAudio_stopPlaying (MelderAudio_IMPLICIT);
 	/*
 		The following command must be performed before the shell is destroyed.
@@ -490,6 +492,10 @@ static void menu_cb_clearUndoHistory (Editor me, EDITOR_ARGS) {
 	GuiMenuItem_setText (my redoButton, U"Can't redo");
 }
 
+static void menu_cb_searchCommands (Editor me, EDITOR_ARGS) {
+	CommandSearchWindow_show (me);
+}
+
 static void menu_cb_searchManual (Editor /* me */, EDITOR_ARGS) {
 	Melder_search ();
 }
@@ -644,6 +650,7 @@ void Editor_init (Editor me, int x, int y, int width, int height, conststring32 
 		EditorMenu helpMenu = Editor_addMenu (me, U"Help", 0);
 		my v_createMenuItems_help (helpMenu);
 		EditorMenu_addCommand (helpMenu, U"-- search --", 0, nullptr);
+		EditorMenu_addCommand (helpMenu, U"Search Praat...", 0, menu_cb_searchCommands);
 		my searchButton = EditorMenu_addCommand (helpMenu, U"Search manual...", 'M', menu_cb_searchManual);
 		if (my v_scriptable ()) {
 			EditorMenu_addCommand (my fileMenu, U"-- scripting --", 0, 0);
@@ -662,6 +669,7 @@ void Editor_init (Editor me, int x, int y, int width, int height, conststring32 
 			EditorMenu_addCommand (my fileMenu, Melder_cat (U"Quit ", Melder_upperCaseAppName (), U" || Quit"), 'Q', menu_cb_quit);
 		#endif
 	}
+	CommandSearch_registerEditor (me);
 	GuiThing_show (my windowForm);
 }
 
@@ -702,3 +710,7 @@ void Editor_save (Editor me, conststring32 cattableDescription) {
 }
 
 /* End of file Editor.cpp */
+
+void Editor_activateSearchCommand (EditorCommand command) {
+    commonCallback (command, nullptr);
+}

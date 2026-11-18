@@ -1583,6 +1583,20 @@ NORMAL (U"To leave the program.")
 ENTRY (U"Behaviour")
 NORMAL (U"All @objects not written to a file will be lost. "
 	"However, file-based objects (like large lexica) will be saved correctly.")
+ENTRY (U"Projects and recovery in this customized build")
+NORMAL (U"Use Praat > Project > Save project as... to name the current workspace. "
+	"Open project... restores its Objects, script and notebook windows, and supported editor views. "
+	"Save project updates the active project. If a LongSound recording has moved, Open project... lets you locate it. "
+	"Save project keeps the new location. Package project... creates a ZIP of the current workspace and its linked recordings. "
+	"Extract the entire ZIP before opening the project inside it.")
+NORMAL (U"On Windows, Praat saves a separate recovery snapshot every five minutes by default and on normal Quit. "
+	"At startup or under Open > Recover workspace..., choose a dated snapshot to continue working from. "
+	"A recovered workspace can be saved as a project. Praat keeps up to 200 completed recovery snapshots by default, "
+	"including older snapshots from before projects were introduced. Change the interval and retention under "
+	"Praat > Settings > Session saving settings.")
+NORMAL (U"Recovery snapshots preserve window positions and sizes on Windows. Sound, LongSound, TextGrid, Spectrum, "
+	"Pitch and Manipulation editors also preserve their zoom and selection. "
+	"Scripts and notebooks reopen without running. Saved workspaces do not include Picture drawings or undo history.")
 ENTRY (U"Usage")
 NORMAL (U"To save your data to a disk file before quitting, choose a command from the @@Save menu@.")
 MAN_END

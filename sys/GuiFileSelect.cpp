@@ -216,14 +216,16 @@ autostring32 GuiFileSelect_getFolderName (GuiWindow optionalParent, conststring3
 		static BROWSEINFO info;
 		ZeroMemory (& info, sizeof (BROWSEINFO));
 		info. hwndOwner = ( optionalParent && optionalParent -> d_xmShell ? (HWND) XtWindow (optionalParent -> d_xmShell) : nullptr );
-		info. ulFlags = BIF_USENEWUI;
+		info. ulFlags = BIF_USENEWUI | BIF_RETURNONLYFSDIRS;
 		info. pidlRoot = nullptr;   // everything on the computer should be browsable
 		info. pszDisplayName = nullptr;   // this would only give the bare folder name, not the full path
 		info. lpszTitle = Melder_peek32toW_fileSystem (title);
 		LPITEMIDLIST idList = SHBrowseForFolder (& info);
-		SHGetPathFromIDList (idList, fullFileNameW);
-		CoTaskMemFree (idList);
-		folderName = Melder_Wto32 (fullFileNameW);
+		if (idList) {
+			if (SHGetPathFromIDList (idList, fullFileNameW))
+				folderName = Melder_Wto32 (fullFileNameW);
+			CoTaskMemFree (idList);
+		}
 		setlocale (LC_ALL, "C");
 	#elif cocoa
 		(void) optionalParent;

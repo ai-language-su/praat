@@ -25,6 +25,7 @@
 #include "melder.h"
 #include "GuiP.h"
 #include "machine.h"
+#include "GuiTheme.h"
 
 static void (*theQuitApplicationCallback) ();
 
@@ -36,6 +37,7 @@ void Gui_runQuitApplicationCallback () {
 }
 
 #if defined (_WIN32)
+#include <commctrl.h>
 #define TRY_BARLESS  0
 
 /* The Motif emulator for Windows. */
@@ -682,6 +684,11 @@ static void _GuiNativizeWidget (GuiObject me) {
 		default: break;
 	}
 	my nativized = True;
+	if (my window) {
+		if (MEMBER (me, Shell) || MEMBER (me, Form) || MEMBER (me, BulletinBoard) || MEMBER (me, RowColumn) || MEMBER (me, ScrolledWindow))
+			SetPropW (my window, L"PraatThemeContainer", (HANDLE) 1);
+		GuiTheme_attach (my window);
+	}
 }
 
 static GuiObject createWidget (int widgetClass, GuiObject parent, const char *name) {
@@ -2614,6 +2621,105 @@ static GuiObject findItem (GuiObject menu, int id) {
 	}
 	return NULL;
 }
+
+static constexpr UINT_PTR menuTooltipTimer = 0x50A1;
+static HWND menuTooltipOwner = nullptr, menuTooltipWindow = nullptr;
+static HMENU menuTooltipMenu = nullptr;
+static int menuTooltipId = -1, menuTooltipPosition = -1;
+
+static void hideMenuTooltip () {
+	if (menuTooltipOwner)
+		KillTimer (menuTooltipOwner, menuTooltipTimer);
+	if (menuTooltipWindow) {
+		TOOLINFOW info { };
+		info.cbSize = TTTOOLINFOW_V2_SIZE;
+		info.hwnd = menuTooltipOwner;
+		info.uId = 1;
+		SendMessageW (menuTooltipWindow, TTM_TRACKACTIVATE, false, (LPARAM) & info);
+	}
+	menuTooltipMenu = nullptr;
+	menuTooltipId = menuTooltipPosition = -1;
+}
+
+static void on_menuSelect (HWND window, WPARAM selection, LPARAM menuHandle) {
+	hideMenuTooltip ();
+	if (! menuHandle || HIWORD (selection) & (MF_SEPARATOR | MF_POPUP))
+		return;
+	GuiObject owner = (GuiObject) GetWindowLongPtr (window, GWLP_USERDATA);
+	GuiObject menuBar = owner && MEMBER (owner, Shell) ? owner -> nat.shell.menuBar :
+		owner && MEMBER (owner, RowColumn) ? owner : nullptr;
+	if (! menuBar)
+		return;
+	const int id = LOWORD (selection);
+	GuiObject item = findItem (menuBar, id);
+	if (! item || ! item -> userData || ! Thing_isa ((Thing) item -> userData, classGuiMenuItem))
+		return;
+	GuiMenuItem menuItem = (GuiMenuItem) item -> userData;
+	if (! menuItem -> d_tooltipText)
+		return;
+	HMENU menu = (HMENU) menuHandle;
+	for (int position = 0; position < GetMenuItemCount (menu); position ++) {
+		if (GetMenuItemID (menu, position) == id) {
+			menuTooltipOwner = window;
+			menuTooltipMenu = menu;
+			menuTooltipId = id;
+			menuTooltipPosition = position;
+			SetTimer (window, menuTooltipTimer, 650, nullptr);
+			break;
+		}
+	}
+}
+
+static void showMenuTooltip (HWND window) {
+	if (window != menuTooltipOwner || ! menuTooltipMenu || menuTooltipPosition < 0)
+		return;
+	KillTimer (window, menuTooltipTimer);
+	GuiObject owner = (GuiObject) GetWindowLongPtr (window, GWLP_USERDATA);
+	GuiObject menuBar = owner && MEMBER (owner, Shell) ? owner -> nat.shell.menuBar :
+		owner && MEMBER (owner, RowColumn) ? owner : nullptr;
+	GuiObject item = menuBar ? findItem (menuBar, menuTooltipId) : nullptr;
+	if (! item || ! item -> userData || ! Thing_isa ((Thing) item -> userData, classGuiMenuItem))
+		return;
+	GuiMenuItem menuItem = (GuiMenuItem) item -> userData;
+	if (! menuItem -> d_tooltipText)
+		return;
+	RECT rect;
+	if (! GetMenuItemRect (window, menuTooltipMenu, menuTooltipPosition, & rect))
+		return;
+	if (! menuTooltipWindow) {
+		INITCOMMONCONTROLSEX controls { sizeof controls, ICC_WIN95_CLASSES };
+		InitCommonControlsEx (& controls);
+		menuTooltipWindow = CreateWindowExW (WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr,
+			WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX, CW_USEDEFAULT, CW_USEDEFAULT,
+			CW_USEDEFAULT, CW_USEDEFAULT, window, nullptr, theGui.instance, nullptr);
+		if (! menuTooltipWindow)
+			return;
+		SendMessageW (menuTooltipWindow, TTM_SETMAXTIPWIDTH, 0, 450);
+		GuiTheme_attach (menuTooltipWindow);
+	}
+	TOOLINFOW info { };
+	info.cbSize = TTTOOLINFOW_V2_SIZE;
+	info.uFlags = TTF_TRACK | TTF_ABSOLUTE;
+	info.hwnd = window;
+	info.uId = 1;
+	info.lpszText = (LPWSTR) menuItem -> d_tooltipText.get();
+	SendMessageW (menuTooltipWindow, TTM_DELTOOLW, 0, (LPARAM) & info);
+	if (! SendMessageW (menuTooltipWindow, TTM_ADDTOOLW, 0, (LPARAM) & info))
+		return;
+	MONITORINFO monitor { sizeof monitor };
+	POINT anchor { rect.right, rect.top };
+	GetMonitorInfoW (MonitorFromPoint (anchor, MONITOR_DEFAULTTONEAREST), & monitor);
+	const int availableHeight = int (monitor.rcWork.bottom - monitor.rcWork.top);
+	const int estimatedHeight = std::min (availableHeight - 16,
+		60 + lstrlenW ((LPCWSTR) menuItem -> d_tooltipText.get()) * 2 / 3);
+	const int estimatedWidth = std::min (750, int (monitor.rcWork.right - monitor.rcWork.left - 16));
+	const int x = rect.right + 12 + estimatedWidth <= monitor.rcWork.right ? int (rect.right + 12) :
+		std::max (int (monitor.rcWork.left), int (rect.left - estimatedWidth - 12));
+	const int y = std::max (int (monitor.rcWork.top),
+		std::min (int (rect.top), int (monitor.rcWork.bottom - estimatedHeight - 8)));
+	SendMessageW (menuTooltipWindow, TTM_TRACKPOSITION, 0, MAKELPARAM (x, y));
+	SendMessageW (menuTooltipWindow, TTM_TRACKACTIVATE, true, (LPARAM) & info);
+}
 static void on_command (HWND window, int id, HWND controlWindow, UINT codeNotify) {
 	GuiObject parent = (GuiObject) GetWindowLongPtr (window, GWLP_USERDATA);
 	if (parent) {
@@ -2871,6 +2977,25 @@ static void on_activate (HWND window, UINT state, HWND hActive, BOOL minimized) 
 }
 static LRESULT CALLBACK windowProc (HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
 	switch (message) {
+		case WM_MENUSELECT:
+			on_menuSelect (window, wParam, lParam);
+			return DefWindowProc (window, message, wParam, lParam);
+		case WM_TIMER:
+			if (wParam == menuTooltipTimer && window == menuTooltipOwner) {
+				showMenuTooltip (window);
+				return 0;
+			}
+			return DefWindowProc (window, message, wParam, lParam);
+		case WM_EXITMENULOOP:
+			if (window == menuTooltipOwner) {
+				hideMenuTooltip ();
+				if (menuTooltipWindow) {
+					DestroyWindow (menuTooltipWindow);
+					menuTooltipWindow = nullptr;
+				}
+				menuTooltipOwner = nullptr;
+			}
+			return DefWindowProc (window, message, wParam, lParam);
 		HANDLE_MSG (window, WM_CLOSE, on_close);
 		HANDLE_MSG (window, WM_COMMAND, on_command);
 		HANDLE_MSG (window, WM_DESTROY, on_destroy);

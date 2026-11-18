@@ -35,8 +35,7 @@ static void logo (Graphics graphics) {
 	Graphics_setFontSize (graphics, 18.0);
 	Graphics_text (graphics, 0.5, 0.77, U"%%doing phonetics by computer");
 	Graphics_setFontSize (graphics, 14.0);
-	Graphics_text (graphics, 0.5, 0.62, Melder_cat (U"version ", Melder_appVersionSTR(),
-			U" (", Melder_appDay(), U" ", Melder_appMonthSTR(), U" ", Melder_appYear(), U")"));
+	Graphics_text (graphics, 0.5, 0.62, Melder_cat (U"AI Language SU · unofficial fork of Praat ", Melder_appVersionSTR()));
 	Graphics_setFontSize (graphics, 12.0);
 	[[maybe_unused]] constexpr bool isArm64 =
 		#if defined (__aarch64__) || defined (_M_ARM64_)
@@ -81,15 +80,13 @@ static void logo (Graphics graphics) {
 	Graphics_text (graphics, 0.5, 0.37, Melder_cat (U"Copyright © 1992–", Melder_appYear(), U" Paul Boersma, David Weenink, Anastasia Shchupak"));
 	Graphics_setFontSize (graphics, 10.0);
 	Graphics_setTextAlignment (graphics, Graphics_RIGHT, Graphics_HALF);
-	Graphics_text (graphics, 0.34, 0.28, U"Download sites:");
-	Graphics_text (graphics, 0.27, 0.14, U"Source code:");
-	Graphics_text (graphics, 0.32, 0.065, U"Praat Users List:");
+	Graphics_text (graphics, 0.5, 0.29, U"Modified 18 November 2026 · GPLv3 or later");
+	Graphics_text (graphics, 0.26, 0.18, U"Fork source");
+	Graphics_text (graphics, 0.26, 0.08, U"Official Praat");
 	Graphics_setTextAlignment (graphics, Graphics_LEFT, Graphics_HALF);
 	Graphics_setFont (graphics, kGraphics_font::COURIER);
-	Graphics_text (graphics, 0.36, 0.28, U"https://praat.org");
-	Graphics_text (graphics, 0.36, 0.22, U"https://www.fon.hum.uva.nl/praat");
-	Graphics_text (graphics, 0.28, 0.14, U"https://github.com/praat/praat.github.io");
-	Graphics_text (graphics, 0.33, 0.065, U"https://groups.io/g/Praat-Users-List");
+	Graphics_text (graphics, 0.28, 0.18, U"https://github.com/ai-language-su/praat");
+	Graphics_text (graphics, 0.28, 0.08, U"https://praat.org");
 }
 
 int main (int argc, char *argv []) {

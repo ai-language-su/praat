@@ -11,14 +11,16 @@ OBJECTS = Thing.o Data.o Simple.o Collection.o Strings.o \
    GraphicsPostscript.o Graphics_surface.o \
    ManPage.o ManPages.o ManPages_toHtml.o Script.o Notebook.o machine.o \
    GraphicsScreen.o Printer.o \
-   Preferences.o site.o \
+   Preferences.o site.o GuiTheme.o GuiButtonIcons.o \
    Picture.o Ui.o UiFile.o UiPause.o DataGui.o Editor.o DataEditor.o HyperPage.o Manual.o TextEditor.o \
-   praat.o praat_actions.o praat_menuCommands.o praat_picture.o \
-   praat_script.o praat_statistics.o praat_logo.o praat_library.o \
+   praat.o praat_actions.o praat_menuCommands.o praat_picture.o CommandSearch.o CommandSearchWindow.o praat_commandHelp.o \
+   BatchAnalysis.o BatchAnalysisWindow.o \
+   CorpusFiles.o CorpusAnnotations.o CorpusAnnotationsWindows.o \
+   praat_script.o praat_statistics.o praat_logo.o praat_library.o praat_session.o \
    praat_objectMenus.o InfoEditor.o ScriptEditor.o NotebookEditor.o ButtonEditor.o \
    Interpreter.o Formula.o \
    StringsEditor.o DemoEditor.o \
-   motifEmulator.o GuiText.o GuiWindow.o Gui.o GuiObject.o GuiDrawingArea.o \
+   motifEmulator.o GuiText.o GuiWindow.o Gui.o GuiObject.o GuiDrawingArea.o GuiHoverHelp.o \
    GuiMenu.o GuiMenuItem.o GuiButton.o GuiLabel.o GuiCheckButton.o GuiRadioButton.o \
    GuiDialog.o GuiList.o GuiTrust.o GuiFileSelect.o GuiScale.o GuiScrollBar.o GuiScrolledWindow.o \
    GuiControl.o GuiForm.o GuiOptionMenu.o GuiProgressBar.o GuiShell.o GuiThing.o Gui_messages.o
@@ -38,3 +40,9 @@ libsys.a: $(OBJECTS)
 	$(RANLIB) libsys.a
 
 $(OBJECTS): *.h ../kar/*.h ../melder/*.h ../dwsys/*.h
+
+praat_commandHelp.o: praat_SoundCommandHelp.inc
+
+praat_session.o: CPPFLAGS += -I ../fon -I ../foned -I ../stat -I ../dwtools -I ../LPC
+BatchAnalysis.o: CPPFLAGS += -I ../fon -I ../stat -I ../dwtools -I ../foned
+CorpusAnnotations.o CorpusAnnotationsWindows.o: CPPFLAGS += -I ../fon -I ../stat -I ../dwtools -I ../foned

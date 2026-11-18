@@ -474,4 +474,14 @@ void GuiMenuItem_setText (GuiMenuItem me, conststring32 text) {
 	#endif
 }
 
+void GuiMenuItem_setTooltip (GuiMenuItem me, conststring32 text) {
+	#if gtk
+		gtk_widget_set_tooltip_text (GTK_WIDGET (my d_widget), Melder_peek32to8 (text));
+	#elif cocoa
+		[(NSMenuItem *) my d_widget setToolTip: (NSString *) Melder_peek32toCfstring (text)];
+	#elif motif
+		my d_tooltipText = Melder_32to16 (text);
+	#endif
+}
+
 /* End of file GuiMenuItem.cpp */

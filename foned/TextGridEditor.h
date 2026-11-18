@@ -22,6 +22,7 @@
 #include "TextGridArea.h"
 #include "LongSoundArea.h"
 #include "SoundAnalysisArea.h"
+#include "CorpusAnnotations.h"
 
 Thing_define (TextGridEditor, FunctionEditor) {
 	DEFINE_FunctionArea (1, TextGridArea, textGridArea)
@@ -29,6 +30,13 @@ Thing_define (TextGridEditor, FunctionEditor) {
 	DEFINE_FunctionArea (3, SoundAnalysisArea, soundAnalysisArea)
 
 	TextGrid textGrid() { return static_cast <TextGrid> (our data()); }
+	// The displayed Sound may be a copy. Keep its Objects-list ID for workspace saving.
+	integer workspaceSoundId = 0;
+	CorpusAnnotations::Template annotationTemplate;
+	autoSTRVEC templateLabelChoices;
+	integer templateLabelTier = 0, templateLabelIndex = 0;
+	double templateLabelTime = 0.0;
+	void v_createMenus () override;
 
 	void v_createMenuItems_help (EditorMenu menu)
 		override;

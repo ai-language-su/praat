@@ -115,6 +115,7 @@ void GuiThing_hide (GuiThing me) {
 }
 
 void GuiThing_setSensitive (GuiThing me, bool sensitive) {
+	my searchSensitive = sensitive;
 	my v_setSensitive (sensitive);
 }
 

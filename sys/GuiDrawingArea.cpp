@@ -18,6 +18,7 @@
  */
 
 #include "GuiP.h"
+#include "GuiTheme.h"
 #if gtk
 	#include "gdk/gdkkeysyms.h"
 	#include <locale.h>
@@ -722,6 +723,7 @@ GuiDrawingArea GuiDrawingArea_create (GuiForm parent, int left, int right, int t
 			WS_CHILD | WS_BORDER | WS_CLIPSIBLINGS,
 			my d_widget -> x, my d_widget -> y, my d_widget -> width, my d_widget -> height, my d_widget -> parent -> window, nullptr, theGui.instance, nullptr);
 		SetWindowLongPtr (my d_widget -> window, GWLP_USERDATA, (LONG_PTR) my d_widget);
+		GuiTheme_attach (my d_widget -> window);
 		my v_positionInForm (my d_widget, left, right, top, bottom, parent);
 		if (! my d_widget -> shell -> textFocus)
 			my d_widget -> shell -> textFocus = my d_widget;   // even if not-yet-managed. But in that case it will not receive global focus
@@ -804,6 +806,7 @@ GuiDrawingArea GuiDrawingArea_create (GuiScrolledWindow parent, int width, int h
 			WS_CHILD | WS_BORDER | WS_CLIPSIBLINGS,
 			0, 0, my d_widget -> width, my d_widget -> height, my d_widget -> parent -> window, nullptr, theGui.instance, nullptr);
 		SetWindowLongPtr (my d_widget -> window, GWLP_USERDATA, (LONG_PTR) my d_widget);
+		GuiTheme_attach (my d_widget -> window);
 		my v_positionInScrolledWindow (my d_widget, width, height, parent);
 		if (! my d_widget -> shell -> textFocus)
 			my d_widget -> shell -> textFocus = my d_widget;   // even if not-yet-managed. But in that case it will not receive global focus
