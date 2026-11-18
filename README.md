@@ -1,7 +1,6 @@
 # Praat: doing phonetics by computer
 
-**The changes in this fork were developed by OpenAI Codex from prompts written
-by Linguistie1. Linguistie1 directed the work through prompts.**
+**The changes in this fork were developed by OpenAI Codex**. 
 
 This is an **unofficial Windows-focused fork of Praat**. It is
 based on upstream Praat 7.0.03 and includes modifications dated 2026-11-18.
