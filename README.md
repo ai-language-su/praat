@@ -8,7 +8,10 @@
 - **Named projects** that restore open editors, zoom, and selections. Relink missing recordings or package a project with its audio.
 - **Batch Analysis** with reusable presets, previews, and CSV export for duration, F1/F2, and F0.
 - **Corpus annotation tools** to find labels across TextGrids, jump to a match, and reuse tiers and allowed labels.
-- **Windows usability** with Search Praat, contextual help, themes, button icons, drag-and-drop, and double-click to edit.
+- **Search Praat** finds commands by name or task.
+- **Contextual help** explains commands where you use them.
+- **Windows appearance settings** add themes and optional button icons.
+- **Faster opening on Windows** lets you drop files into Objects and double-click objects to open them in View & Edit.
 
 ### Get `Praat.exe` on Windows
 
