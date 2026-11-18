@@ -2,7 +2,7 @@
 
 **OpenAI Codex developed the changes in this fork.**
 
-### Added since official Praat 7.0.03
+### New features
 
 - **Autosave and recovery** with five-minute backups by default, snapshot previews, and reversible removal.
 - **Named projects** that restore open editors, zoom, and selections. Relink missing recordings or package a project with its audio.
