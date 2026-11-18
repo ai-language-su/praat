@@ -474,6 +474,7 @@ static void gui_cb_list_selectionChanged (Thing /* boss */, GuiList_SelectionCha
 
 #if motif
 void praat_actions_openSelectionEditor ();
+void praat_macroPad_init (GuiWindow window);
 static void gui_cb_list_doubleClick (Thing /* boss */, GuiList_DoubleClickEvent event) {
 	Melder_assert (event -> list == praatList_objects);
 	if (! Melder_backgrounding)
@@ -1991,7 +1992,7 @@ void praat_init (conststring32 title,
 		trace (U"locale ", Melder_peek8to32_u (setlocale (LC_ALL, nullptr)));
 		Gui_getWindowPositioningBounds (& x, & y, nullptr, nullptr);
 		trace (U"locale ", Melder_peek8to32_u (setlocale (LC_ALL, nullptr)));
-		theCurrentPraatApplication -> topShell = raam = GuiWindow_create (x + 10, y, WINDOW_WIDTH, WINDOW_HEIGHT, 450, 250,
+		theCurrentPraatApplication -> topShell = raam = GuiWindow_create (x + 10, y, WINDOW_WIDTH, WINDOW_HEIGHT, 450, motif ? 375 : 250,
 				objectWindowTitle, gui_cb_quit, nullptr, 0);
 		trace (U"locale ", Melder_peek8to32_u (setlocale (LC_ALL, nullptr)));
 		#if motif
@@ -2022,7 +2023,7 @@ void praat_init (conststring32 title,
 
 		trace (U"creating the object list in the Objects window");
 		GuiLabel_createShown (raam, 3, -250, Machine_getMenuBarBottom () + 5, Machine_getMenuBarBottom () + 5 + Gui_LABEL_HEIGHT, U"Objects:", 0);
-		praatList_objects = GuiList_create (raam, 0, -250, Machine_getMenuBarBottom () + 26, -100, true, U" Objects ");
+		praatList_objects = GuiList_create (raam, 0, -250, Machine_getMenuBarBottom () + 26, motif ? -226 : -100, true, U" Objects ");
 		GuiList_setSelectionChangedCallback (praatList_objects, gui_cb_list_selectionChanged, nullptr);
 		#if motif
 			GuiList_setDoubleClickCallback (praatList_objects, gui_cb_list_doubleClick, nullptr);
@@ -2051,6 +2052,9 @@ void praat_init (conststring32 title,
 		#if ! defined (macintosh)
 			trace (U"initializing the Gui late (Windows and Linux)");
 			injectMessageAndInformationProcs (theCurrentPraatApplication -> topShell);   // Mac: done this earlier
+		#endif
+		#if motif
+			praat_macroPad_init (raam);
 		#endif
 		Melder_setHelpProc (helpProc);
 	}

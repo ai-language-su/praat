@@ -661,8 +661,12 @@ void praat_actions_openSelectionEditor () {
 }
 
 static conststring32 actionMenuTooltip (Praat_Command action) {
-	return Melder_cat (praat_actionSummary (action), U"\n____________________________\n",
-		praat_boldTooltipQuestions (praat_actionGuide (action)). c_str());
+	const auto summary = praat_actionSummary (action);
+	const auto guide = praat_actionGuide (action);
+	if (! guide || ! *guide) return summary;
+	const auto formattedGuide = praat_boldTooltipQuestions (guide);
+	return summary && *summary ? Melder_cat (summary, U"\n____________________________\n", formattedGuide.c_str()) :
+		Melder_cat (formattedGuide.c_str());
 }
 
 void praat_actions_show () {
@@ -768,14 +772,16 @@ void praat_actions_show () {
 						( my executable ? 0 : GuiMenu_INSENSITIVE ),
 						cb_menu, me
 					);
-					GuiMenuItem_setTooltip ((GuiMenuItem) my button, actionMenuTooltip (me));
+					if (const auto tooltip = actionMenuTooltip (me))
+						GuiMenuItem_setTooltip ((GuiMenuItem) my button, tooltip);
 				} else {
 					my button = GuiButton_createShown (praat_form,
 						BUTTON_LEFT, BUTTON_RIGHT, y, y + Gui_PUSHBUTTON_HEIGHT,
 						my added ? Melder_cat (U"\u207A", my title.get()) : my title.get(), gui_button_cb_menu,
 						me, ( my executable ? 0 : GuiButton_INSENSITIVE ) | ( my attractive ? GuiButton_ATTRACTIVE : 0 )
 					);
-				GuiButton_setTooltip ((GuiButton) my button, actionMenuTooltip (me));
+					if (const auto tooltip = actionMenuTooltip (me))
+						GuiButton_setTooltip ((GuiButton) my button, tooltip);
 					y += Gui_PUSHBUTTON_HEIGHT + BUTTON_VSPACING;
 				}
 			} else if (i == theActions.size || theActions.at [i + 1] -> depth == 0) {
@@ -803,10 +809,13 @@ void praat_actions_show () {
 					);
 					y += Gui_PUSHBUTTON_HEIGHT + BUTTON_VSPACING;
 					my button = currentSubmenu1 -> d_cascadeButton.get();
-					GuiButton_setTooltip ((GuiButton) my button, actionMenuTooltip (me));
+					if (const auto tooltip = actionMenuTooltip (me))
+						GuiButton_setTooltip ((GuiButton) my button, tooltip);
 				} else {
 					currentSubmenu2 = GuiMenu_createInMenu (currentSubmenu1, my added ? Melder_cat (U"\u207A", my title.get()) : my title.get(), 0);
 					my button = currentSubmenu2 -> d_menuItem.get();
+					if (const auto tooltip = actionMenuTooltip (me))
+						GuiMenuItem_setTooltip ((GuiMenuItem) my button, tooltip);
 				}
 				GuiThing_show (my button);
 			}

@@ -31,9 +31,13 @@ def run(mode, folder, extra=(), timeout=45):
         raise RuntimeError(f"{mode} failed ({result.returncode}): {result.stderr.decode('utf-8', errors='replace')}")
 
 run("core", base / "Unicode å")
+run("recovery-storage", base / "storage")
 history = base / "recovery-history"
 run("seed-recovery-history", history)
 run("recovery-history", history)
+macro_prefs = base / "macro-pad"
+run("write-macros", macro_prefs)
+run("run-macros", macro_prefs)
 run("named-project", base / "named-project")
 package = base / "package-source"
 run("package-project", package)

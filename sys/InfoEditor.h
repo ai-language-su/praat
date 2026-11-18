@@ -21,8 +21,13 @@
 #include "ScriptEditor.h"
 
 Thing_define (InfoEditor, TextEditor) {
+	GuiCheckButton followSelection;
+	bool showingBinCount = false;
+
 	void v9_destroy () noexcept
 		override;
+	void v_createChildren () override;
+	int v_textBottomInset () const override { return 34; }
 	bool v_scriptable ()
 		override { return false; }
 	bool v_fileBased () const
@@ -34,6 +39,8 @@ Thing_define (InfoEditor, TextEditor) {
 InfoEditor InfoEditor_getTheReferenceToTheOnlyInstance ();
 
 void InfoEditor_injectInformationProc ();
+void InfoEditor_reportBinCount (integer count);
+void InfoEditor_refreshBinCount ();
 
 /* End of file InfoEditor.h */
 #endif

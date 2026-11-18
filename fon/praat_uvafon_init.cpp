@@ -21,6 +21,7 @@
 #include "Distributions_and_Transition.h"
 #include "Excitation_to_Formant.h"
 #include "Harmonicity.h"
+#include "InfoEditor.h"
 #include "LongSound.h"
 #include "Ltas_to_SpectrumTier.h"
 #include "ManipulationEditor.h"
@@ -1095,7 +1096,12 @@ DO
 DIRECT (INTEGER_Ltas_getNumberOfBins) {
 	QUERY_ONE_FOR_REAL (Ltas)
 		const integer result = my nx;
-	QUERY_ONE_FOR_REAL_END (U" bins")
+		if (! interpreter && ! Melder_batch && ! Melder_backgrounding)
+			InfoEditor_reportBinCount (result);
+		else {
+			FOR_REAL__ (U" bins")
+		}
+	QUERY_END__
 }
 
 FORM (REAL_Ltas_getSlope, U"Ltas: Get slope", 0) {
@@ -2439,7 +2445,12 @@ DO
 DIRECT (INTEGER_Spectrum_getNumberOfBins) {
 	QUERY_ONE_FOR_REAL (Spectrum)
 		const integer result = my nx;
-	QUERY_ONE_FOR_REAL_END (U" bins")
+		if (! interpreter && ! Melder_batch && ! Melder_backgrounding)
+			InfoEditor_reportBinCount (result);
+		else {
+			FOR_REAL__ (U" bins")
+		}
+	QUERY_END__
 }
 
 FORM (REAL_Spectrum_getSkewness, U"Spectrum: Get skewness", U"Spectrum: Get skewness...") {

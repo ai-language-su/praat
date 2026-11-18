@@ -3,11 +3,16 @@
 #include "CommandSearchWindow.h"
 #include "CorpusAnnotations.h"
 #include "GuiP.h"
+#include "InfoEditor.h"
+#include "Ltas.h"
 #include "praatP.h"
+#include "praat_script.h"
 #include "Sound.h"
+#include "Spectrum.h"
 #include "TextGrid.h"
 #include "TextGridEditor.h"
 #include <shlobj.h>
+#include <array>
 #include <fstream>
 #include <iostream>
 
@@ -187,8 +192,197 @@ static void testWindow (const fs::path &root) {
 	check (! IsWindowVisible (batch));
 }
 
+static void testSpectrumHoverHelp () {
+	const auto before = theCurrentPraatObjects -> n;
+	praat_new (Spectrum_create (8000.0, 256), U"hover_test");
+	praat_updateSelection ();
+	integer queries = 0;
+	Praat_Command realValue = nullptr, queryMenu = nullptr, unknown = nullptr;
+	for (integer i = 1; i <= praat_getNumberOfActions (); ++ i) {
+		const auto action = praat_getAction (i);
+		if (! action -> title) continue;
+		const auto title = action -> title.get();
+		if (action -> class1 == classSpectrum && ! action -> class2) {
+			if (! action -> callback && Melder_startsWith (title, U"Query")) queryMenu = action;
+			if (! action -> callback || ! action -> visible || ! Melder_startsWith (title, U"Get ")) continue;
+			++ queries;
+			check (praat_actionSummary (action));
+			const auto guide = praat_actionGuide (action);
+			check (! guide || ! str32str (guide, U"What is a query?"));
+			check (static_cast<GuiMenuItem> (action -> button) -> d_tooltipText);
+			if (str32equ (title, U"Get real value in bin...")) realValue = action;
+		}
+		if (action -> class1 == classMatrix && ! action -> class2 && str32equ (title, U"Get number of rows")) unknown = action;
+	}
+	check (queries == 19 && realValue && queryMenu && unknown);
+	const auto tooltip = Melder_peek16to32 (static_cast<GuiMenuItem> (realValue -> button) -> d_tooltipText.get());
+	check (str32str (tooltip, U"Fourier coefficient") && str32str (tooltip, U"numbered frequency sample"));
+	check (str32str (tooltip, U"cosine component") && str32str (tooltip, U"band energy"));
+	check (str32str (praat_actionGuide (queryMenu), U"What is a query?"));
+	check (! praat_actionSummary (unknown) && ! praat_actionGuide (unknown));
+	praat_removeObject (before + 1);
+}
+
 static void click (HWND window, const wchar_t *button) {
 	SendMessageW (control (window, L"Button", button), BM_CLICK, 0, 0);
+}
+
+static void pressControlA (HWND window, bool shift = false) {
+	std::array<BYTE, 256> previous {};
+	check (GetKeyboardState (previous.data()));
+	auto keys = previous;
+	keys [VK_CONTROL] = keys [VK_LCONTROL] = 0x80;
+	keys [VK_SHIFT] = keys [VK_LSHIFT] = shift ? 0x80 : 0;
+	keys [VK_MENU] = 0;
+	check (SetKeyboardState (keys.data()));
+	MSG event { window, WM_KEYDOWN, 'A', 1 };
+	XtDispatchEvent (& event);
+	check (SetKeyboardState (previous.data()));
+}
+
+static void testSelectAll () {
+	const auto before = theCurrentPraatObjects -> n;
+	praat_new (Sound_createSimple (1, 0.5, 16000), U"select_all_test");
+	praat_updateSelection ();
+	check (praat_doAction (U"View & Edit", U"", nullptr));
+	const auto editor = static_cast<FunctionEditor> (theCurrentPraatObjects -> list [before + 1].editors [0]);
+	check (editor);
+	FunctionEditor_ungroup (editor -> data());
+	editor -> startWindow = 0.1;
+	editor -> endWindow = 0.3;
+	editor -> startSelection = 0.15;
+	editor -> endSelection = 0.2;
+	FunctionEditor_windowMarksChanged (editor, true);
+	const HWND view = editor -> drawingArea -> d_widget -> window;
+	pressControlA (view);
+	check (editor -> startSelection == editor -> tmin && editor -> endSelection == editor -> tmax);
+	check (editor -> startWindow == 0.1 && editor -> endWindow == 0.3);
+	editor -> startSelection = 0.2;
+	editor -> endSelection = 0.25;
+	pressControlA (view, true);
+	check (editor -> startWindow == editor -> tmin && editor -> endWindow == editor -> tmax);
+	check (editor -> startSelection == 0.2 && editor -> endSelection == 0.25);
+	praat_removeObject (before + 1);
+	praat_show ();
+
+	Melder_information (U"Keep text shortcuts working");
+	const auto info = InfoEditor_getTheReferenceToTheOnlyInstance ();
+	const HWND text = info -> textWidget -> d_widget -> window;
+	SendMessageW (text, EM_SETSEL, 2, 2);
+	pressControlA (text);
+	DWORD start = 0, end = 0;
+	SendMessageW (text, EM_GETSEL, (WPARAM) & start, (LPARAM) & end);
+	check (start == 0 && end == (DWORD) GetWindowTextLengthW (text));
+}
+
+static void testLiveBinCount () {
+	const auto before = theCurrentPraatObjects -> n;
+	praat_new (Spectrum_create (8000.0, 64), U"first");
+	praat_new (Spectrum_create (8000.0, 128), U"second");
+	praat_new (Ltas_create (25, 100.0), U"average");
+	praat_new (Sound_createSimple (1, 0.1, 16000), U"sound");
+	praat_updateSelection ();
+	const auto select = [&] (integer offset) {
+		praat_deselectAll ();
+		praat_select (before + offset);
+		praat_show ();
+	};
+	select (1);
+	check (praat_doAction (U"Get number of bins", U"", nullptr));
+	const auto info = InfoEditor_getTheReferenceToTheOnlyInstance ();
+	const HWND window = topWindow (L"Praat Info");
+	const HWND follow = control (window, L"Button", L"Follow selected object");
+	check (IsWindowVisible (follow) && SendMessageW (follow, BM_GETCHECK, 0, 0) == BST_UNCHECKED);
+	const auto contains = [&] (conststring32 text) { return str32str (GuiText_getString (info -> textWidget).get(), text) != nullptr; };
+	check (contains (U"64 bins"));
+	select (2);
+	check (contains (U"64 bins"));
+	click (window, L"Follow selected object");
+	check (contains (U"128 bins") && contains (U"Spectrum second"));
+	select (3);
+	check (contains (U"25 bins") && contains (U"Ltas average"));
+	select (4);
+	check (contains (U"Select one Spectrum or LTAS"));
+	select (1);
+	praat_select (before + 2);
+	praat_show ();
+	check (contains (U"Select one Spectrum or LTAS"));
+	select (1);
+	check (contains (U"64 bins"));
+	click (window, L"Follow selected object");
+	select (2);
+	check (contains (U"64 bins"));
+	Melder_information (U"Ordinary Info output");
+	check (! IsWindowVisible (follow));
+	select (3);
+	check (contains (U"Ordinary Info output"));
+	praat_executeScriptFromText (U"binCount = Get number of bins\nassert binCount = 25\n");
+	check (! IsWindowVisible (follow) && contains (U"Ordinary Info output"));
+	check (praat_doAction (U"Get number of bins", U"", nullptr));
+	check (IsWindowVisible (follow) && contains (U"25 bins"));
+	while (theCurrentPraatObjects -> n > before) praat_removeObject (theCurrentPraatObjects -> n);
+	praat_show ();
+}
+
+static void testSearchScope () {
+	praat_show ();
+	CommandSearchWindow_show (nullptr);
+	const auto window = topWindow (L"Search Praat");
+	const auto query = control (window, L"Edit");
+	const auto list = control (window, L"ListBox");
+	const auto run = control (window, L"Button", L"Run command");
+	const auto find = [&] (const wchar_t *title, const wchar_t *path) {
+		const auto count = SendMessageW (list, LB_GETCOUNT, 0, 0);
+		for (LRESULT i = 0; i < count; ++ i) {
+			const auto length = SendMessageW (list, LB_GETTEXTLEN, i, 0);
+			check (length >= 0);
+			std::wstring row ((size_t) length + 1, L'\0');
+			SendMessageW (list, LB_GETTEXT, i, (LPARAM) row.data());
+			if (row.rfind (title, 0) == 0 && row.find (path) != row.npos) return true;
+		}
+		return false;
+	};
+	const auto search = [&] (const wchar_t *text) {
+		check (SetWindowTextW (query, text));
+		CommandSearchWindow_refresh ();
+	};
+	search (L"Batch Analysis");
+	check (find (L"Batch Analysis...", L"Objects > Tools"));
+	click (window, L"Objects menus");
+	check (! find (L"Batch Analysis...", L"Objects > Tools"));
+	search (L"Get real value in bin");
+	check (find (L"Get real value in bin...", L"Objects > Spectrum"));
+	click (window, L"Available now");
+	check (! find (L"Get real value in bin...", L"Objects > Spectrum"));
+	const auto before = theCurrentPraatObjects -> n;
+	praat_new (Spectrum_create (8000.0, 128), U"scope_test");
+	praat_updateSelection ();
+	check (find (L"Get real value in bin...", L"Objects > Spectrum"));
+	click (window, L"Object commands");
+	check (! find (L"Get real value in bin...", L"Objects > Spectrum"));
+	click (window, L"Available now");
+	praat_removeObject (before + 1);
+	praat_new (Sound_createSimple (1, 0.1, 16000), U"scope_test");
+	praat_updateSelection ();
+	check (praat_doAction (U"View & Edit", U"", nullptr));
+	search (L"Zoom in");
+	check (find (L"Zoom in", L"SoundEditor"));
+	click (window, L"Open editors");
+	check (! find (L"Zoom in", L"SoundEditor"));
+	search (L"Erase all");
+	check (find (L"Erase all", L"Picture > Edit"));
+	click (window, L"Picture menus");
+	check (SendMessageW (list, LB_GETCOUNT, 0, 0) == 0 && ! IsWindowEnabled (run));
+	click (window, L"Objects menus");
+	click (window, L"Object commands");
+	search (L"Batch Analysis");
+	check (find (L"Batch Analysis...", L"Objects > Tools"));
+	search (L"Get real value in bin");
+	check (find (L"Get real value in bin...", L"Objects > Spectrum"));
+	click (window, L"Open editors");
+	click (window, L"Picture menus");
+	praat_removeObject (before + 1);
+	click (window, L"Close");
 }
 
 static const fs::path *templatePickerPath;
@@ -324,6 +518,10 @@ int main (int argc, char **argv) {
 		const auto root = fs::u8path (Melder_peek32to8 (MelderFolder_peekPath (Melder_preferencesFolder())));
 		testAnalysis (root);
 		testWindow (root);
+		testSpectrumHoverHelp ();
+		testSearchScope ();
+		testLiveBinCount ();
+		testSelectAll ();
 		testCorpusAnnotations (root);
 		std::cout << "Batch analysis, TextGrid search and annotation template integration passed" << std::endl;
 		Gui_runQuitApplicationCallback ();

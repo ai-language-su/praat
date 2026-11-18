@@ -2465,7 +2465,10 @@ modifiers & _motif_SHIFT_MASK ? " shift" : "", message -> message == WM_KEYDOWN 
 			 * If the Command key is pressed with a printable character, this is often a menu shortcut.
 			 */
 			} else if ((modifiers & _motif_COMMAND_MASK) && ! (modifiers & _motif_OPTION_MASK)) {
-				if (MEMBER (me, Text) && (kar == 'X' || kar == 'C' || kar == 'V' || kar == 'Z')) {
+				if (MEMBER (me, Text) && kar == 'A' && modifiers == _motif_COMMAND_MASK) {
+					SendMessageW (message -> hwnd, EM_SETSEL, 0, -1);
+					return;
+				} else if (MEMBER (me, Text) && (kar == 'X' || kar == 'C' || kar == 'V' || kar == 'Z')) {
 					;   // let window proc handle text editing
 				} else if (kar >= 186) {
 					const int shift = modifiers & _motif_SHIFT_MASK;

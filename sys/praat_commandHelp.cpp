@@ -2,23 +2,67 @@
 
 // Exact command names and source class keep similarly named analyses distinct.
 // nullptr preserves an existing explanation that was reviewed as sufficient.
-struct SoundCommandHelp { conststring32 title, summary, guide; };
+struct CommandHelp { conststring32 title, summary, guide; };
 #define SOUND_HELP(title, summary, guide) { title, summary, guide },
-static const SoundCommandHelp soundCommandHelp [] = {
+static const CommandHelp soundCommandHelp [] = {
 #include "praat_SoundCommandHelp.inc"
 };
 #undef SOUND_HELP
 
-static const SoundCommandHelp * soundHelp (Praat_Command action) {
-	if (! action -> class1 || action -> class2 || ! str32equ (action -> class1 -> className, U"Sound"))
-		return nullptr;
-	for (const auto &help : soundCommandHelp)
-		if (str32equ (action -> title.get(), help.title)) return & help;
-	return nullptr;
-}
+static constexpr conststring32 binDefinition =
+	U"What is a bin? It is one numbered sample of the spectrum on its evenly spaced frequency grid. Bins start at 1, with the lowest stored frequency first.";
+static constexpr conststring32 spectralPower =
+	U"What does Power mean? It sets how strongly larger spectral magnitudes count. Use 2 for power-spectrum weighting or 1 for magnitude weighting.";
+
+static const CommandHelp spectrumQueryHelp [] = {
+	{ U"Frequency domain", U"Find the lowest and highest frequencies represented by this Spectrum.", nullptr },
+	{ U"Frequency sampling", U"Find how the Spectrum’s numbered bins map to frequencies in Hz.", binDefinition },
+	{ U"Get lowest frequency", U"Report the lower limit of the Spectrum’s frequency range, in Hz.", nullptr },
+	{ U"Get highest frequency", U"Report the upper limit of the Spectrum’s frequency range, in Hz. For a Spectrum made from a Sound, this is half the sampling frequency.", nullptr },
+	{ U"Get number of bins", U"Count the stored frequency samples in this Spectrum. This is also the largest bin number you can enter.", binDefinition },
+	{ U"Get bin width", U"Report the spacing in Hz between neighbouring frequency samples.",
+		U"Why check it? The spacing tells you how far apart the stored frequencies are. For example, with 10 Hz spacing, neighbouring bins could be at 100 and 110 Hz." },
+	{ U"Get frequency from bin number...", U"Convert a bin number to its frequency in Hz.", binDefinition },
+	{ U"Get bin number from frequency...", U"Find where a frequency in Hz falls on the bin grid.",
+		U"Why a fractional result? A value of 12.5 falls halfway between bins 12 and 13. Choose a whole bin number within range to look up a stored coefficient." },
+	{ U"Get real value in bin...", U"Read the real part of the Fourier coefficient at one frequency bin.",
+		U"What is a bin? It is one numbered frequency sample. Use Get frequency from bin number to see which frequency it represents.\n"
+		U"What does real mean? It is the cosine component of the coefficient. The real and imaginary parts together encode magnitude and phase. Use band energy if you want to know how much energy lies in a frequency range." },
+	{ U"Get imaginary value in bin...", U"Read the imaginary part of the Fourier coefficient at one frequency bin.",
+		U"What is a bin? It is one numbered frequency sample. Use Get frequency from bin number to see which frequency it represents.\n"
+		U"What does imaginary mean? It is the sine-related component of the coefficient. The real and imaginary parts together encode magnitude and phase." },
+	{ U"Get band energy...", U"Measure the total spectral energy between two frequencies, in Pa²·s.",
+		U"When is it useful? Use it to find how much energy falls in a range, such as 500–1,000 Hz. Use band density to compare average energy per Hz across differently sized ranges." },
+	{ U"Get band density...", U"Measure the average spectral energy per Hz within a frequency range.",
+		U"When is it useful? Dividing by the width of the band lets you compare average spectral energy across narrow and wide ranges." },
+	{ U"Get band energy difference...", U"Compare total energy in two frequency bands, in dB.",
+		U"How do I read it? Praat divides the high band’s energy by the low band’s energy and converts that ratio to dB. A positive result means the high band has more total energy." },
+	{ U"Get band density difference...", U"Compare the average energy per Hz in two frequency bands, in dB.",
+		U"How do I read it? A positive result means the high band has greater average energy per Hz. This is useful when the two bands have different widths." },
+	{ U"Get centre of gravity...", U"Report the weighted average frequency in Hz. A higher result means more weight falls at higher frequencies.", spectralPower },
+	{ U"Get standard deviation...", U"Measure how spread out the weighted frequencies are around their centre of gravity, in Hz.", spectralPower },
+	{ U"Get skewness...", U"Measure the asymmetry of the weighted spectrum. Positive skewness indicates a longer or heavier tail toward higher frequencies.", spectralPower },
+	{ U"Get kurtosis...", U"Measure the weight of the spectrum’s tails relative to a normal distribution, whose excess kurtosis is zero.", spectralPower },
+	{ U"Get central moment...", U"Measure a chosen order of spread around the spectrum’s centre of gravity. The second central moment is the variance.",
+		U"Which setting does what? Moment chooses the order. Power chooses how strongly larger spectral magnitudes count." },
+	{ U"Get frequency of nearest maximum...", U"Given a frequency in Hz, find the frequency of the closest spectral peak.", nullptr },
+	{ U"Get sound pressure level of nearest maximum...", U"Given a frequency in Hz, report the level of the closest spectral peak in dB/Hz.", nullptr },
+};
 
 static bool actionIsForClass (Praat_Command action, conststring32 className) {
 	return action -> class1 && str32equ (action -> class1 -> className, className);
+}
+
+static const CommandHelp * exactHelp (Praat_Command action) {
+	if (action -> class2) return nullptr;
+	if (actionIsForClass (action, U"Sound")) {
+		for (const auto &help : soundCommandHelp)
+			if (str32equ (action -> title.get(), help.title)) return & help;
+	} else if (actionIsForClass (action, U"Spectrum")) {
+		for (const auto &help : spectrumQueryHelp)
+			if (str32equ (action -> title.get(), help.title)) return & help;
+	}
+	return nullptr;
 }
 
 static bool actionIsStandardAnalysis (Praat_Command action, conststring32 title, conststring32 name) {
@@ -27,7 +71,7 @@ static bool actionIsStandardAnalysis (Praat_Command action, conststring32 title,
 }
 
 conststring32 praat_actionSummary (Praat_Command action) {
-	if (const auto *help = soundHelp (action); help && help -> summary) return help -> summary;
+	if (const auto *help = exactHelp (action); help && help -> summary) return help -> summary;
 	conststring32 title = action -> title.get();
 	if (str32equ (title, U"View & Edit"))
 		return U"Open Praat's editor for the selected object. For a Sound, it shows the waveform and listening and analysis controls; for a TextGrid, it shows annotation tiers.";
@@ -61,9 +105,7 @@ conststring32 praat_actionSummary (Praat_Command action) {
 		return U"Emphasize one resonance in the selected Sound itself; this in-place command does not create a new Sound.";
 	if (str32equ (title, U"Draw..."))
 		return U"Draw the selected object in the Picture window. The dialog lets you choose how it is drawn.";
-	if (Melder_startsWith (title, U"Draw "))
-		return Melder_cat (U"Draw “", title + 5, U"” in the Picture window using the selected object.");
-	if (Melder_startsWith (title, U"Draw"))
+	if (! action -> callback && Melder_startsWith (title, U"Draw"))
 		return U"Draw the selected object in the Picture window. Choose a command here to decide what to display.";
 	if (Melder_startsWith (title, U"Query"))
 		return U"Measure or report information about the selected object. These commands usually show a result in the Info window.";
@@ -79,7 +121,7 @@ conststring32 praat_actionSummary (Praat_Command action) {
 		return U"Change the sound's pitch or duration using a Manipulation object.";
 	if (Melder_startsWith (title, U"Convert"))
 		return U"Create another kind of object from the selected one.";
-	if (Melder_startsWith (title, U"Filter") && actionIsForClass (action, U"Sound"))
+	if (! action -> callback && Melder_startsWith (title, U"Filter") && actionIsForClass (action, U"Sound"))
 		return U"Change the balance of frequencies in the sound, for example to emphasize or reduce a frequency range.";
 	if (Melder_startsWith (title, U"Combine") && title [7] == U' ' && (title [8] == U'>' || title [8] == U'-'))
 		return U"Use selected objects together to create a new object.";
@@ -105,20 +147,11 @@ conststring32 praat_actionSummary (Praat_Command action) {
 		return U"Compare the timing of two selected Sounds with dynamic time warping and create an alignment object.";
 	if (str32equ (title, U"To ParamCurve"))
 		return U"Make a ParamCurve from two selected Sounds, using one Sound for each coordinate over time.";
-	if (Melder_startsWith (title, U"Get "))
-		return Melder_cat (U"Measure “", title + 4, U"” for the selected object. Praat reports the result in the Info window.");
-	if (Melder_startsWith (title, U"To "))
-		return Melder_cat (U"Create “", title + 3, U"” from the selected object. A command ending in ... opens a settings dialog first.");
-	if (Melder_startsWith (title, U"Extract "))
-		return Melder_cat (U"Take “", title + 8, U"” out of the selected object and create a separate object.");
-	if (Melder_startsWith (title, U"Draw "))
-		return Melder_cat (U"Draw “", title + 5, U"” in the Picture window using the selected object.");
-	return Melder_cat (U"Use “", title, U"” with the selected ", action -> class1 ? action -> class1 -> className : U"object",
-		U". A command ending in ... opens a settings dialog before it runs.");
+	return nullptr;
 }
 
 conststring32 praat_actionGuide (Praat_Command action) {
-	if (const auto *help = soundHelp (action); help && help -> guide) return help -> guide;
+	if (const auto *help = exactHelp (action); help && (help -> guide || actionIsForClass (action, U"Spectrum"))) return help -> guide;
 	conststring32 title = action -> title.get();
 	if (Melder_startsWith (title, U"Filter (pass Hann band)") && actionIsForClass (action, U"Spectrum"))
 		return U"What happens in Praat? This command changes the selected Spectrum in place. A Spectrum represents the frequencies of a sound; it is not itself a Sound object.\n"
@@ -278,6 +311,8 @@ conststring32 praat_actionGuide (Praat_Command action) {
 		return U"What happens in Praat? Praat creates a separate TextGrid marking stretches judged likely to contain speech. Different commands here use different detection methods, so their results may disagree.\n"
 			U"Why use it? It can speed up locating speech in a long or noisy recording, but it is not a transcript and may miss quiet speech or mark other sounds as speech.\n"
 			U"How do I use it? Select a Sound, read the method and settings, run it, then open the new TextGrid together with the Sound. Listen to the marked intervals and correct them before relying on the labels.";
+	// Menu explanations belong on the category itself, never on a command.
+	if (action -> callback) return nullptr;
 	if (Melder_startsWith (title, U"Filter"))
 		return U"What happens in Praat? Commands in this section process the selected Sound's samples and normally put a new Sound in Objects. They change which frequencies are strong or weak in that new version. The original stays available for comparison.\n"
 			U"What is a frequency? It is how quickly a vibration repeats. Praat asks for many frequency settings in hertz (Hz), or repetitions per second. Lower Hz often sounds lower; higher Hz often sounds higher.\n"
@@ -303,7 +338,7 @@ conststring32 praat_actionGuide (Praat_Command action) {
 		return U"What is manipulation? It means changing an aspect of the sound, commonly pitch or duration. Praat can store editable changes in a Manipulation object.\n"
 			U"Why use it? To experiment with how speech sounds when timing or pitch changes.\n"
 			U"How do I use it? Select a Sound, make a Manipulation object if needed, edit its controls, then resynthesize and listen to the new Sound.";
-	if (Melder_startsWith (title, U"Get ") || Melder_startsWith (title, U"Query"))
+	if (Melder_startsWith (title, U"Query"))
 		return U"What is a query? It asks Praat to calculate or report a property of the selected object, such as a time, value, or measurement.\n"
 			U"Why use it? To get a number you can compare, record, or use in further analysis.\n"
 			U"How do I use it? Select an object, choose the measurement, fill in any requested time or range, and read the answer in the Info window. Check units and settings before comparing results.";
@@ -323,7 +358,5 @@ conststring32 praat_actionGuide (Praat_Command action) {
 		return U"What does modify mean? It changes data or properties of the selected object.\n"
 			U"Why use it? To correct, transform, or prepare an object for the next step.\n"
 			U"How do I use it? Select the object, open the command, read its settings, and inspect the result. Make a copy first if you want to keep the original state.";
-	return U"What happens in Praat? This command is available because the selected object type supports it. Praat works with objects in memory: a Sound holds audio samples, a TextGrid holds timed labels, and analysis objects hold measurements. The command uses the selected object and may report a value, change it, draw it, or create another object.\n"
-		U"Why is it on the right? Praat changes this action list to match what you selected on the left. A command shown for a Sound may disappear when you select a different object type.\n"
-		U"How do I use it? Check the selected object, choose the command, and read any dialog before pressing OK. A name ending in ... means Praat will ask for settings. Afterward, look for a new object in Objects, a value in Info, or a drawing in Picture, depending on the command.";
+	return nullptr;
 }

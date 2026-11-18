@@ -24,6 +24,7 @@
 #include "ButtonEditor.h"
 #include "BatchAnalysis.h"
 #include "CommandSearchWindow.h"
+#include "InfoEditor.h"
 #include "praat_session.h"
 #include "GuiTheme.h"
 #include "DataEditor.h"
@@ -361,6 +362,25 @@ DIRECT (PRAAT__SaveProject) {
 	PRAAT_END
 }
 
+FORM (SETTINGS__OldSessionSavingSettings, U"Session saving settings", nullptr) {
+	BOOLEAN (saveSession, U"Enable automatic recovery backups", true)
+	#if motif
+		BOOLEAN (periodicAutosave, U"Also autosave while working", true)
+		NATURAL (autosaveMinutes, U"Autosave interval (minutes)", U"5")
+	#endif
+	NATURAL (backupsToKeep, U"Number of backups to keep (1-200)", U"200")
+OK
+DO
+	PREFS
+		#if motif
+			praat_session_setAutosaveSettings (periodicAutosave, autosaveMinutes, backupsToKeep);
+		#else
+			praat_session_setAutosaveSettings (praat_session_autosaveEnabled (), praat_session_autosaveMinutes (), backupsToKeep);
+		#endif
+		praat_session_setEnabled (saveSession);
+	PREFS_END
+}
+
 FORM (SETTINGS__SessionSavingSettings, U"Session saving settings", nullptr) {
 	BOOLEAN (saveSession, U"Enable automatic recovery backups", true)
 	#if motif
@@ -368,9 +388,10 @@ FORM (SETTINGS__SessionSavingSettings, U"Session saving settings", nullptr) {
 		NATURAL (autosaveMinutes, U"Autosave interval (minutes)", U"5")
 	#endif
 	NATURAL (backupsToKeep, U"Number of backups to keep (1-200)", U"200")
-	COMMENT (U"Keeps Objects and unsaved scripts/notebooks in separate backups.")
-	COMMENT (U"Each save gets a new backup; removes the oldest at the limit.")
-	COMMENT (U"Large Sounds can use substantial disk space.")
+	NATURAL (recoveryStorageLimit, U"Recovery storage limit (MiB)", U"2048")
+	MUTABLE_COMMENT (storageUsage, U"Recovery storage usage")
+	COMMENT (U"The limits apply after a successful save. Praat keeps the newest backup.")
+	COMMENT (U"To free space, Praat removes recently removed backups first, then the oldest backups.")
 	COMMENT (U"LongSound source files must stay available.")
 	#if motif
 		COMMENT (U"At startup, choose a backup or start with an empty workspace.")
@@ -382,12 +403,14 @@ OK
 		SET_INTEGER (autosaveMinutes, praat_session_autosaveMinutes ())
 	#endif
 	SET_INTEGER (backupsToKeep, praat_session_backupsToKeep ())
-DO
+	SET_INTEGER (recoveryStorageLimit, praat_session_diskLimitMiB ())
+	SET_STRING (storageUsage, praat_session_storageSummary ().get())
+DO_ALTERNATIVE (SETTINGS__OldSessionSavingSettings)
 	PREFS
 		#if motif
-			praat_session_setAutosaveSettings (periodicAutosave, autosaveMinutes, backupsToKeep);
+			praat_session_setAutosaveSettings (periodicAutosave, autosaveMinutes, backupsToKeep, recoveryStorageLimit);
 		#else
-			praat_session_setAutosaveSettings (praat_session_autosaveEnabled (), praat_session_autosaveMinutes (), backupsToKeep);
+			praat_session_setAutosaveSettings (praat_session_autosaveEnabled (), praat_session_autosaveMinutes (), backupsToKeep, recoveryStorageLimit);
 		#endif
 		praat_session_setEnabled (saveSession);
 	PREFS_END
@@ -817,6 +840,7 @@ void praat_show () {
 	praat_sensitivizeFixedButtonCommand (U"Inspect", theCurrentPraatObjects -> totalSelection != 0);
 	praat_actions_show ();
 	CommandSearchWindow_refresh ();
+	InfoEditor_refreshBinCount ();
 	if (theCurrentPraatApplication == & theForegroundPraatApplication && theReferenceToTheOnlyButtonEditor)
 		Editor_dataChanged (theReferenceToTheOnlyButtonEditor, nullptr);
 }

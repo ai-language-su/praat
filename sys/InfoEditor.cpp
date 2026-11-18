@@ -17,10 +17,52 @@
  */
 
 #include "InfoEditor.h"
+#include "praatP.h"
+#include "Ltas.h"
+#include <utility>
 
 Thing_implement (InfoEditor, TextEditor, 0);
 
 static InfoEditor theReferenceToTheOnlyInfoEditor;
+static bool nextOutputIsBinCount;
+
+void InfoEditor_refreshBinCount () {
+	const auto editor = theReferenceToTheOnlyInfoEditor;
+	if (! editor || ! editor -> showingBinCount || ! GuiCheckButton_getValue (editor -> followSelection) ||
+			Melder_backgrounding || theCurrentPraatObjects != & theForegroundPraatObjects) return;
+	if (theCurrentPraatObjects -> totalSelection == 1) {
+		for (integer i = 1; i <= theCurrentPraatObjects -> n; ++ i) {
+			const auto &entry = theCurrentPraatObjects -> list [i];
+			if (! entry.isSelected) continue;
+			if (entry.klas == classSpectrum || entry.klas == classLtas) {
+				const auto count = static_cast<Sampled> (entry.object) -> nx;
+				GuiText_setString (editor -> textWidget,
+					Melder_cat (entry.id, U". ", entry.name.get(), U"\n\n", count, count == 1 ? U" bin\n" : U" bins\n"), false);
+				return;
+			}
+			break;
+		}
+	}
+	GuiText_setString (editor -> textWidget, U"Select one Spectrum or LTAS object to see its bin count.", false);
+}
+
+static void followChanged (InfoEditor, GuiCheckButtonEvent) { InfoEditor_refreshBinCount (); }
+
+void structInfoEditor :: v_createChildren () {
+	InfoEditor_Parent :: v_createChildren ();
+	our followSelection = GuiCheckButton_create (our windowForm, 8, -8, -30, -4, U"Follow selected object", followChanged, this, 0);
+}
+
+void InfoEditor_reportBinCount (integer count) {
+	nextOutputIsBinCount = true;
+	try {
+		Melder_information (count, U" bins");
+	} catch (...) {
+		nextOutputIsBinCount = false;
+		throw;
+	}
+	nextOutputIsBinCount = false;
+}
 
 void structInfoEditor :: v9_destroy () noexcept {
 	theReferenceToTheOnlyInfoEditor = nullptr;   // undangle
@@ -43,6 +85,7 @@ InfoEditor InfoEditor_getTheReferenceToTheOnlyInstance () {
 }
 
 static void gui_information (conststring32 message) {
+	const bool binCount = std::exchange (nextOutputIsBinCount, false);
 	InfoEditor editor = InfoEditor_getTheReferenceToTheOnlyInstance ();
 	#if cocoa
 		/*
@@ -62,7 +105,17 @@ static void gui_information (conststring32 message) {
 		NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
 		//Melder_casual (U"cocoaTextView retain count before: ", [editor -> textWidget -> d_cocoaTextView  retainCount]);
 	#endif
-	GuiText_setString (editor -> textWidget, message, false);
+	editor -> showingBinCount = binCount;
+	if (binCount) {
+		GuiThing_show (editor -> followSelection);
+	} else {
+		GuiCheckButton_setValue (editor -> followSelection, false);
+		GuiThing_hide (editor -> followSelection);
+	}
+	if (binCount && GuiCheckButton_getValue (editor -> followSelection))
+		InfoEditor_refreshBinCount ();
+	else
+		GuiText_setString (editor -> textWidget, message, false);
 	GuiThing_show (editor -> windowForm);
 	/*
 		Try to make sure that the invalidated text widget and the elements of the fronted window are

@@ -829,7 +829,9 @@ NORMAL (U"When mentioning the %%Extra-Command key%, this manual refers to "
 	"For instance, if Command-T means \"add a target at the cursor position\", "
 	"Extra-Command-T may mean \"remove the selected targets\".")
 ENTRY (U"Shortcuts")
-LIST_ITEM (U"Command-A: Zoom all")
+LIST_ITEM (U"On Windows, Ctrl+A: Select the whole object in a time or frequency editor, or select all text in a text field.")
+LIST_ITEM (U"On Windows, Ctrl+Shift+A: Show the whole object in a time or frequency editor.")
+LIST_ITEM (U"On macOS and Linux, Command-A: Zoom all.")
 LIST_ITEM (U"Command-C: Copy (the selected text, or the selected sound, or the selected part of the Picture window)")
 LIST_ITEM (U"Command-D (in TextGrid window): Align interval")
 LIST_ITEM (U"Command-D (in Manipulation window): Insert duration point at cursor")

@@ -7,9 +7,15 @@ namespace {
 using Text = std::u32string;
 struct Result {
     integer id;
-    int source, score = 0;
+    int score = 0;
     Text title, path, summary, guide, requirements;
     bool eligible;
+};
+struct SearchScope {
+    bool objectsMenus, objectCommands, openEditors, pictureMenu;
+    bool availableOnly, includeHidden;
+
+    bool hasSource () const { return objectsMenus || objectCommands || openEditors || pictureMenu; }
 };
 std::vector<Editor> editors;
 integer nextId = 0;
@@ -35,17 +41,20 @@ Text requirements (Praat_Command c) {
     }
     return out.empty() ? U"Uses the current window or Objects selection." : U"Select " + out + U" in Objects, with no other object types selected.";
 }
-std::vector<Result> catalogue (bool hidden) {
+std::vector<Result> catalogue (const SearchScope &filter) {
     std::vector<Result> out;
-    for (int source = 0; source < 2; ++ source) {
+    for (const bool fixed : { false, true }) {
+        if (fixed ? ! filter.objectsMenus && ! filter.pictureMenu : ! filter.objectCommands) continue;
         Text parents [8], scope;
-        integer count = source ? praat_getNumberOfMenuCommands () : praat_getNumberOfActions ();
+        const integer count = fixed ? praat_getNumberOfMenuCommands () : praat_getNumberOfActions ();
         for (integer i = 1; i <= count; ++ i) {
-            Praat_Command c = source ? praat_getMenuCommand (i) : praat_getAction (i);
+            Praat_Command c = fixed ? praat_getMenuCommand (i) : praat_getAction (i);
             if (! c -> title || c -> title [0] == U'-') continue;
-            Text root = source ? copy (c -> window.get()) + U" > " + (c -> menu ? copy (c -> menu.get()) : U"Object controls") : U"Objects > " + copy (c -> class1 ? c -> class1 -> className : U"Object");
-            if (source && c -> menu && str32equ (c -> menu.get(), U"ApplicationHelp")) root = copy (c -> window.get()) + U" > Help";
-            if (! source) {
+            if (fixed && ! ((filter.objectsMenus && str32equ (c -> window.get(), U"Objects")) ||
+                    (filter.pictureMenu && str32equ (c -> window.get(), U"Picture")))) continue;
+            Text root = fixed ? copy (c -> window.get()) + U" > " + (c -> menu ? copy (c -> menu.get()) : U"Object controls") : U"Objects > " + copy (c -> class1 ? c -> class1 -> className : U"Object");
+            if (fixed && c -> menu && str32equ (c -> menu.get(), U"ApplicationHelp")) root = copy (c -> window.get()) + U" > Help";
+            if (! fixed) {
                 if (c -> class2) root += U" + " + copy (c -> class2 -> className);
                 if (c -> class3) root += U" + " + copy (c -> class3 -> className);
                 if (c -> class4) root += U" + " + copy (c -> class4 -> className);
@@ -57,22 +66,23 @@ std::vector<Result> catalogue (bool hidden) {
                 (parents [depth].back() == U'>' || parents [depth].back() == U'-'))
                 parents [depth].resize (parents [depth].size() - 2);
             for (int d = depth + 1; d < 8; ++ d) parents [d].clear();
-            if (! c -> callback || (c -> hidden && ! hidden)) continue;
-            if (source && ! str32equ (c -> window.get(), U"Objects") && ! str32equ (c -> window.get(), U"Picture")) continue;
+            if (! c -> callback || (c -> hidden && ! filter.includeHidden) || (filter.availableOnly && ! c -> executable)) continue;
             Text path = root;
             for (int d = 0; d < depth; ++ d) if (! parents [d].empty()) path += U" > " + parents [d];
-            Result r { identity (c -> searchId), source, 0, copy (c -> title.get()), path, {}, {}, requirements (c), bool (c -> executable) };
-            if (! source) { r.summary = copy (praat_actionSummary (c)); r.guide = copy (praat_actionGuide (c)); }
+            Result r { identity (c -> searchId), 0, copy (c -> title.get()), path, {}, {}, requirements (c), bool (c -> executable) };
+            if (! fixed) { r.summary = copy (praat_actionSummary (c)); r.guide = copy (praat_actionGuide (c)); }
             if (c -> hidden) r.path += U" [hidden]";
             out.push_back (std::move (r));
         }
     }
+    if (! filter.openEditors) return out;
     for (Editor e : editors) for (integer m = 1; m <= e -> menus.size; ++ m) {
         EditorMenu menu = e -> menus.at [m];
         for (integer j = 1; j <= menu -> commands.size; ++ j) {
             EditorCommand c = menu -> commands.at [j];
-            if (! c -> commandCallback || ! c -> itemWidget || ! c -> itemTitle) continue;
-            out.push_back ({ identity (c -> searchId), 2, 0, copy (c -> itemTitle.get()),
+            if (! c -> commandCallback || ! c -> itemWidget || ! c -> itemTitle ||
+                    (filter.availableOnly && ! c -> itemWidget -> searchSensitive)) continue;
+            out.push_back ({ identity (c -> searchId), 0, copy (c -> itemTitle.get()),
                 copy (Thing_className (e)) + U" [" + copy (e -> name.get()) + U"] > " + copy (menu -> menuTitle.get()),
                 U"Run this command in the named editor window.", {}, U"Uses the selection and settings in that editor.", c -> itemWidget -> searchSensitive });
         }
@@ -86,7 +96,7 @@ Thing_define (CommandSearchWindow, Thing) {
     GuiText query, detail;
     GuiList list;
     GuiButton run;
-    GuiCheckButton hidden;
+    GuiCheckButton objectsMenus, objectCommands, openEditors, pictureMenu, availableOnly, hidden;
     std::vector<Result> results;
     integer selectedId = 0;
     bool updating = false, visible = false;
@@ -94,10 +104,21 @@ Thing_define (CommandSearchWindow, Thing) {
 Thing_implement (CommandSearchWindow, Thing, 0);
 static CommandSearchWindow window;
 
+static SearchScope currentScope (CommandSearchWindow me) {
+    return { GuiCheckButton_getValue (my objectsMenus), GuiCheckButton_getValue (my objectCommands),
+        GuiCheckButton_getValue (my openEditors), GuiCheckButton_getValue (my pictureMenu),
+        GuiCheckButton_getValue (my availableOnly), GuiCheckButton_getValue (my hidden) };
+}
+
 static void showDetail (CommandSearchWindow me) {
     auto positions = GuiList_getSelectedPositions (my list);
     if (! positions.size || positions [1] > integer (my results.size())) {
-        GuiText_setString (my detail, U"No matching commands. Try a command name, a partial word, or a task such as join recordings.");
+        my selectedId = 0;
+        const auto filter = currentScope (me);
+        GuiText_setString (my detail,
+            ! filter.hasSource () ? U"Choose where to search using the checkboxes above." :
+            filter.availableOnly ? U"No matching commands are available now. Change your selection or clear Available now." :
+            U"No matching commands. Try a different search or include more sources.");
         GuiThing_setSensitive (my run, false); return;
     }
     const Result &r = my results [positions [1] - 1]; my selectedId = r.id;
@@ -115,7 +136,7 @@ void CommandSearchWindow_refresh () {
     try {
         auto query = GuiText_getString (my query);
         const Text q = normalized (copy (query.get()));
-        my results = catalogue (GuiCheckButton_getValue (my hidden));
+        my results = catalogue (currentScope (me));
         for (auto &r : my results) r.score = CommandSearch_score (q, normalized (r.title), normalized (keywords (r)), normalized (r.summary + U" " + r.guide + U" " + r.path));
         my results.erase (std::remove_if (my results.begin(), my results.end(), [] (const Result &r) { return r.score == 0; }), my results.end());
         std::stable_sort (my results.begin(), my results.end(), [] (const Result &a, const Result &b) { return a.score != b.score ? a.score > b.score : a.eligible > b.eligible; });
@@ -139,6 +160,7 @@ static void closeSearch (CommandSearchWindow me) { my visible = false; GuiThing_
 static void closeButton (CommandSearchWindow me, GuiButtonEvent) { closeSearch (me); }
 static void activate (CommandSearchWindow me, GuiButtonEvent) {
     const integer id = my selectedId;
+    if (! id) return;
     praat_show ();  // refresh fixed buttons and current selection before resolving identity
     bool done = praat_searchActivateAction (id) || praat_searchActivateFixed (id);
     if (! done) for (Editor e : editors) {
@@ -164,10 +186,16 @@ void CommandSearchWindow_show (Editor) {
         GuiLabel_createShown (my dialog, 12, -12, 10, 32, U"Find a command or describe a task", 0);
         my query = GuiText_createShown (my dialog, 12, -12, 36, 64, 0);
         GuiText_setChangedCallback (my query, changed, me.get());
-        my hidden = GuiCheckButton_createShown (my dialog, 12, -12, 70, 94, U"Include hidden commands", scopeChanged, me.get(), 0);
-        my list = GuiList_createShown (my dialog, 12, -12, 100, 315, false, nullptr);
+        GuiLabel_createShown (my dialog, 12, 76, 71, 96, U"Search in", 0);
+        my objectsMenus = GuiCheckButton_createShown (my dialog, 87, 211, 71, 96, U"Objects menus", scopeChanged, me.get(), GuiCheckButton_SET);
+        my objectCommands = GuiCheckButton_createShown (my dialog, 222, 370, 71, 96, U"Object commands", scopeChanged, me.get(), GuiCheckButton_SET);
+        my openEditors = GuiCheckButton_createShown (my dialog, 381, 501, 71, 96, U"Open editors", scopeChanged, me.get(), GuiCheckButton_SET);
+        my pictureMenu = GuiCheckButton_createShown (my dialog, 512, 640, 71, 96, U"Picture menus", scopeChanged, me.get(), GuiCheckButton_SET);
+        my availableOnly = GuiCheckButton_createShown (my dialog, 12, 147, 102, 127, U"Available now", scopeChanged, me.get(), 0);
+        my hidden = GuiCheckButton_createShown (my dialog, 155, 375, 102, 127, U"Include hidden commands", scopeChanged, me.get(), 0);
+        my list = GuiList_createShown (my dialog, 12, -12, 134, 343, false, nullptr);
         GuiList_setSelectionChangedCallback (my list, selected, me.get());
-        my detail = GuiText_createShown (my dialog, 12, -12, 325, -52, GuiText_SCROLLED | GuiText_ANYWRAP | GuiText_NONEDITABLE);
+        my detail = GuiText_createShown (my dialog, 12, -12, 353, -52, GuiText_SCROLLED | GuiText_ANYWRAP | GuiText_NONEDITABLE);
         my run = GuiButton_createShown (my dialog, 12, 180, -42, -12, U"Run command", activate, me.get(), GuiButton_DEFAULT);
         GuiButton_createShown (my dialog, 195, 365, -42, -12, U"Search manual...", searchManual, me.get(), 0);
         GuiButton_createShown (my dialog, -110, -12, -42, -12, U"Close", closeButton, me.get(), GuiButton_CANCEL);

@@ -44,6 +44,7 @@ Thing_define (TextEditor, Editor) {
 	virtual bool v_fileBased () const { return true; };   // if true, have New, Open..., Save; if false, have Clear
 	virtual conststring32 v_extension () const { return U".txt"; }
 	virtual void v_clear () { }
+	virtual int v_textBottomInset () const { return 0; }
 
 	#include "TextEditor_prefs.h"
 };

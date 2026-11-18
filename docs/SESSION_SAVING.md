@@ -42,8 +42,9 @@ save in its editor.
 
 On Windows the default remains one autosave every five minutes. Normal Quit and
 workspace switches also create recovery snapshots when there is work to save.
-Praat keeps the latest 200 completed snapshots by default. These backups are
-separate from project saves and never overwrite a project or a source file.
+Praat keeps up to 200 active snapshots by default and targets a 2,048 MiB
+recovery storage limit. These backups are separate from project saves and
+never overwrite a project or a source file.
 
 When backups are available, a normal launch offers the **Recover workspace**
 window. Select the date and project name you want, or choose **Start empty**.
@@ -54,16 +55,20 @@ data they originally saved. If a snapshot cannot be read, the chooser stays
 open so that you can select a different date.
 
 The backup directory is `%APPDATA%\Praat\SessionBackups` by default. It follows
-`--pref-dir` when supplied. **Praat > Settings > Session saving settings…** lets
-you change the interval and retention, disable periodic autosave while keeping
-normal-exit backups, or turn off automatic backups. Explicit project saves and
-manual recovery remain available. Batch mode does not write or open recovery
-snapshots automatically.
+`--pref-dir` when supplied. **Praat > Settings > Session saving settings…** shows
+recovery usage and lets you change the save interval, snapshot count, and storage
+limit. You can also disable periodic autosave while keeping normal-exit backups,
+or turn off automatic backups. Explicit project saves and manual recovery remain
+available. Batch mode does not write or open recovery snapshots automatically.
 
-Praat writes each new snapshot privately before publishing it and prunes older
-backups after the new snapshot succeeds. Long commands can delay periodic
-saving, and full snapshots of large Sound objects can need substantial disk
-space. Project saves also publish only after a successful write.
+Autosave stores identical Sound data once in the `Sounds` subfolder. Edited
+versions are stored separately while a snapshot still needs them. Older backups
+with embedded Sounds remain readable. **Recently removed** snapshots count
+toward the space limit. After a successful save, Praat applies the active
+snapshot count limit. If it needs more space, it clears the oldest recently
+removed snapshots first, then the oldest active backups. The newly saved
+snapshot is kept even if it exceeds the limit by itself. Named projects and
+project ZIPs retain their own audio and do not count toward recovery storage.
 
 ## Windows build and verification
 

@@ -16,7 +16,7 @@ OBJECTS = Thing.o Data.o Simple.o Collection.o Strings.o \
    praat.o praat_actions.o praat_menuCommands.o praat_picture.o CommandSearch.o CommandSearchWindow.o praat_commandHelp.o \
    BatchAnalysis.o BatchAnalysisWindow.o \
    CorpusFiles.o CorpusAnnotations.o CorpusAnnotationsWindows.o \
-   praat_script.o praat_statistics.o praat_logo.o praat_library.o praat_session.o \
+   praat_script.o praat_statistics.o praat_logo.o praat_library.o praat_session.o praat_macroPad.o \
    praat_objectMenus.o InfoEditor.o ScriptEditor.o NotebookEditor.o ButtonEditor.o \
    Interpreter.o Formula.o \
    StringsEditor.o DemoEditor.o \
@@ -44,5 +44,6 @@ $(OBJECTS): *.h ../kar/*.h ../melder/*.h ../dwsys/*.h
 praat_commandHelp.o: praat_SoundCommandHelp.inc
 
 praat_session.o: CPPFLAGS += -I ../fon -I ../foned -I ../stat -I ../dwtools -I ../LPC
+InfoEditor.o: CPPFLAGS += -I ../fon -I ../stat
 BatchAnalysis.o: CPPFLAGS += -I ../fon -I ../stat -I ../dwtools -I ../foned
 CorpusAnnotations.o CorpusAnnotationsWindows.o: CPPFLAGS += -I ../fon -I ../stat -I ../dwtools -I ../foned

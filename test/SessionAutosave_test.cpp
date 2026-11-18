@@ -66,6 +66,100 @@ static size_t savedCount () {
 		if (entry.path().extension() == ".Collection" && entry.path().filename() != "session-not-a-backup.Collection") ++ count;
 	return count;
 }
+static std::vector<fs::path> filesWithSuffix (const fs::path &folder, const char *suffix) {
+	std::vector<fs::path> paths;
+	if (fs::exists (folder))
+		for (const auto &entry : fs::directory_iterator (folder))
+			if (entry.is_regular_file() && entry.path().extension() == suffix) paths.push_back (entry.path());
+	std::sort (paths.begin(), paths.end());
+	return paths;
+}
+
+static void recoveryStorage () {
+	const auto preferences = Melder_preferencesFolder ();
+	const auto directory = root / "SessionBackups", shared = directory / "Sounds";
+	assert (praat_session_diskLimitMiB () == 2048);
+	fs::create_directory (directory);
+	// A legacy embedded snapshot should continue to restore independently of Sounds/.
+	auto legacy = Collection_create ();
+	auto addStrings = [&] (std::initializer_list<conststring32> fields) {
+		auto strings = Thing_new (Strings);
+		strings -> strings = autoSTRVEC ((integer) fields.size());
+		for (const auto value : fields) strings -> strings [++ strings -> numberOfStrings] = Melder_dup (value);
+		legacy -> addItem_move (strings.move());
+	};
+	addStrings ({ U"PraatSession 2", U"1" });
+	addStrings ({ U"legacy", U"Sound", U"", U"1", U"1", U"1" });
+	auto payloads = Collection_create ();
+	payloads -> addItem_move (Sound_createSimple (1, 0.01, 16000));
+	legacy -> addItem_move (payloads.move());
+	addStrings ({});
+	addStrings ({});
+	const auto legacyPath = directory / "session-1000000000000000-1-1.Collection";
+	auto old = fileFor (legacyPath);
+	Data_writeToBinaryFile (legacy.get(), & old);
+	assert (praat_session_restoreFromFolder (preferences));
+	assert (str32equ (theCurrentPraatObjects -> list [1].object -> name.get(), U"legacy"));
+	clear ();
+	fs::remove (legacyPath);
+
+	auto initial = Sound_createSimple (1, 0.625, 128000);
+	initial -> z [1] [1] = 0.125;
+	praat_new (initial.move(), U"original");
+	praat_updateSelection ();
+	auto sound = static_cast<Sound> (theCurrentPraatObjects -> list [1].object);
+	const auto interrupted = directory / "pending-recovery-1234567-123";
+	fs::create_directory (interrupted);
+	std::ofstream (interrupted / "snapshot.Collection") << "incomplete";
+	std::ofstream (interrupted / (std::string (64, 'a') + ".Sound")) << "partial audio";
+	praat_session_saveToFolder (preferences);
+	assert (! fs::exists (interrupted));
+	Thing_setName (sound, U"renamed");
+	praat_session_saveToFolder (preferences);
+	const auto originalBlobs = filesWithSuffix (shared, ".Sound");
+	assert (savedCount () == 2 && originalBlobs.size() == 1 && fs::file_size (originalBlobs [0]) > 600000);
+	for (const auto &path : filesWithSuffix (directory, ".Collection")) assert (fs::file_size (path) < 4096);
+	sound -> z [1] [1] = 0.25;
+	praat_new (Thing_new (SessionWriteFailure), U"cannot_save");
+	bool failed = false;
+	try { praat_session_saveToFolder (preferences); } catch (MelderError) { failed = true; Melder_clearError (); }
+	assert (failed && savedCount () == 2 && filesWithSuffix (shared, ".Sound") == originalBlobs);
+	praat_removeObject (2);
+	praat_session_saveToFolder (preferences);
+	assert (savedCount () == 3 && filesWithSuffix (shared, ".Sound").size() == 2);
+	const auto removed = directory / "Removed";
+	fs::create_directory (removed);
+	const auto latest = filesWithSuffix (directory, ".Collection").back();
+	fs::rename (latest, removed / latest.filename());
+	clear ();
+	assert (praat_session_restoreFromFolder (preferences));
+	sound = static_cast<Sound> (theCurrentPraatObjects -> list [1].object);
+	assert (sound -> z [1] [1] == 0.125 && str32equ (sound -> name.get(), U"renamed"));
+	// A removed snapshot still keeps its unique audio until space is needed.
+	praat_session_saveToFolder (preferences);
+	assert (filesWithSuffix (shared, ".Sound").size() == 2);
+	assert (praat_doMenuCommand (U"Session saving settings...", U"yes yes 5 200 1", nullptr));
+	assert (praat_session_diskLimitMiB () == 1 && fs::exists (removed / latest.filename()));
+	praat_session_saveToFolder (preferences);
+	assert (filesWithSuffix (removed, ".Collection").empty() && savedCount () == 4);
+	assert (filesWithSuffix (shared, ".Sound") == originalBlobs);
+	sound -> z [1] [1] = 0.5;
+	praat_session_saveToFolder (preferences);
+	assert (savedCount () == 1 && filesWithSuffix (shared, ".Sound").size() == 1 && ! fs::exists (originalBlobs [0]));
+	clear ();
+	assert (praat_session_restoreFromFolder (preferences));
+	assert (static_cast<Sound> (theCurrentPraatObjects -> list [1].object) -> z [1] [1] == 0.5);
+	clear ();
+	praat_new (Sound_createSimple (1, 1.25, 128000), U"larger_than_limit");
+	praat_updateSelection ();
+	praat_session_saveToFolder (preferences);
+	assert (savedCount () == 1 && fs::file_size (filesWithSuffix (shared, ".Sound").at (0)) > 1024 * 1024);
+	clear ();
+	assert (praat_session_restoreFromFolder (preferences));
+	assert (str32equ (theCurrentPraatObjects -> list [1].object -> name.get(), U"larger_than_limit"));
+	clear ();
+	std::cout << "Shared Sound storage, earlier audio versions, failure handling and disk limit passed" << std::endl;
+}
 static void populate () {
 	theCurrentPraatObjects -> sequentialUniqueIdOfLatestObjectInList = 100;
 	autoSound sound = Sound_createSimple (2, 0.125, 16000.0);
@@ -217,6 +311,74 @@ static void checkRecoveryHistory () {
 	assert (wcscmp (detail, L"Empty workspace") == 0);
 	SendMessageW (findRecoveryControl (L"Button", L"Cancel"), BM_CLICK, 0, 0);
 	std::cout << "Recovery previews, bulk removal and undo passed" << std::endl;
+}
+static HWND windowWithTitle (const wchar_t *title) {
+	RecoveryControl query { nullptr, title };
+	EnumThreadWindows (GetCurrentThreadId (), findRecoveryChild, (LPARAM) & query);
+	assert (query.window && IsWindowVisible (query.window));
+	return query.window;
+}
+static HWND namedButton (HWND window, const wchar_t *title) {
+	RecoveryControl query { L"Button", title };
+	EnumChildWindows (window, findRecoveryChild, (LPARAM) & query);
+	assert (query.window);
+	return query.window;
+}
+static BOOL CALLBACK findMacroText (HWND child, LPARAM result) {
+	wchar_t className [32] {};
+	GetClassNameW (child, className, 32);
+	if (_wcsicmp (className, L"Edit") == 0)
+		reinterpret_cast<HWND *> (result) [(GetWindowLongW (child, GWL_STYLE) & WS_VSCROLL) != 0] = child;
+	return TRUE;
+}
+static void CALLBACK confirmClearMacro (HWND, UINT, UINT_PTR timer, DWORD) {
+	RecoveryControl query { L"#32770", L"Clear macro slot" };
+	EnumThreadWindows (GetCurrentThreadId (), findRecoveryChild, (LPARAM) & query);
+	if (! query.window) return;
+	KillTimer (nullptr, timer);
+	PostMessageW (query.window, WM_COMMAND, IDOK, 0);
+}
+static void macroPad () {
+	const auto objects = windowWithTitle (L"PraatSessionTest Objects");
+	if (mode == "write-macros") {
+		for (int i = 1; i <= 9; ++ i)
+			namedButton (objects, (std::to_wstring (i) + L" +").c_str());
+		SendMessageW (namedButton (objects, L"1 +"), WM_RBUTTONUP, 0, 0);
+		const auto edit = windowWithTitle (L"Edit macro slot 1");
+		HWND fields [2] {};
+		EnumChildWindows (edit, findMacroText, (LPARAM) fields);
+		assert (fields [0] && fields [1]);
+		SetWindowTextW (fields [0], L"Label");
+		SetWindowTextW (fields [1], L"# Selected object only\r\nRename: \"měřené\"\r\n");
+		SendMessageW (namedButton (edit, L"Save"), BM_CLICK, 0, 0);
+		assert (fs::exists (root / "Macros" / "slot-1.PraatMacro") && ! IsWindowVisible (edit));
+		const auto empty = namedButton (objects, L"2 +");
+		SendMessageW (empty, BM_CLICK, 0, 0);
+		assert (windowWithTitle (L"Edit macro slot 2") == edit);
+		SetWindowTextW (fields [0], L"Discard");
+		SendMessageW (namedButton (edit, L"Cancel"), BM_CLICK, 0, 0);
+		assert (! fs::exists (root / "Macros" / "slot-2.PraatMacro"));
+	} else {
+		const auto macro = namedButton (objects, L"Label");
+		praat_new (Sound_createSimple (1, 0.1, 16000), U"unchanged");
+		praat_updateSelection ();
+		praat_new (Sound_createSimple (1, 0.1, 16000), U"selected");
+		praat_updateSelection ();
+		SendMessageW (macro, BM_CLICK, 0, 0);
+		assert (theCurrentPraatObjects -> n == 2);
+		assert (str32equ (theCurrentPraatObjects -> list [1].object -> name.get(), U"unchanged"));
+		assert (str32equ (theCurrentPraatObjects -> list [2].object -> name.get(), U"měřené"));
+		SendMessageW (macro, WM_CONTEXTMENU, (WPARAM) macro, -1);
+		const auto edit = windowWithTitle (L"Edit macro slot 1");
+		const auto timer = SetTimer (nullptr, 0, 60, confirmClearMacro);
+		assert (timer);
+		SendMessageW (namedButton (edit, L"Clear slot…"), BM_CLICK, 0, 0);
+		KillTimer (nullptr, timer);
+		namedButton (objects, L"1 +");
+		assert (! fs::exists (root / "Macros" / "slot-1.PraatMacro"));
+		clear ();
+	}
+	std::cout << "Macro pad verified in mode " << mode << std::endl;
 }
 static BOOL CALLBACK findRecordingPicker (HWND window, LPARAM result) {
 	wchar_t caption [256] {};
@@ -443,6 +605,10 @@ static void CALLBACK afterStartup (HWND, UINT, UINT_PTR timer, DWORD) {
 		periodicStarted = std::chrono::steady_clock::now();
 		assert (SetTimer (nullptr, 0, 55000, nestedCommand));
 		return;
+	} else if (mode == "recovery-storage") {
+		recoveryStorage ();
+	} else if (mode == "write-macros" || mode == "run-macros") {
+		macroPad ();
 	} else if (mode == "seed-recovery-history") {
 		praat_session_saveToFolder (Melder_preferencesFolder());
 		praat_session_saveToFolder (Melder_preferencesFolder());

@@ -9,7 +9,9 @@ bool praat_session_isActive ();
 bool praat_session_autosaveEnabled ();
 integer praat_session_autosaveMinutes ();
 integer praat_session_backupsToKeep ();
-void praat_session_setAutosaveSettings (bool enabled, integer minutes, integer backups);
+integer praat_session_diskLimitMiB ();
+autostring32 praat_session_storageSummary ();
+void praat_session_setAutosaveSettings (bool enabled, integer minutes, integer backups, integer storageLimit = 0);
 // Windows: start a wake-up timer, then poll only from the outer application loop.
 // Nested message loops must never capture partly modified data.
 void praat_session_startAutosave ();

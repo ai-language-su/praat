@@ -562,6 +562,14 @@ static void QUERY_EDITOR_FOR_REAL__getLengthOfSelection (FunctionEditor me, EDIT
 
 #pragma mark - FuncEd Time set selection
 
+static void menu_cb_selectAll (FunctionEditor me, EDITOR_ARGS) {
+	VOID_EDITOR
+		my startSelection = my tmin;
+		my endSelection = my tmax;
+		FunctionEditor_selectionMarksChanged (me);
+	VOID_EDITOR_END
+}
+
 static void menu_cb_select (FunctionEditor me, EDITOR_ARGS) {
 	EDITOR_FORM (U"Select", nullptr)
 		REAL (startOfSelection, Melder_cat (U"Start of selection (", my v_format_units_short(), U")"), U"0.0")
@@ -1162,7 +1170,8 @@ void structFunctionEditor :: v_createMenus () {
 	EditorMenu_addCommand (domainMenu, U"- Set visible part:", 0, nullptr);
 	EditorMenu_addCommand (domainMenu, U"Zoom and scroll settings...", 1, menu_cb_zoomAndScrollSettings);
 	EditorMenu_addCommand (domainMenu, U"Zoom...", 1, menu_cb_zoom);
-	EditorMenu_addCommand (domainMenu, U"Show all", 'A' | GuiMenu_DEPTH_1, menu_cb_showAll);
+	EditorMenu_addCommand (domainMenu, U"Show all",
+		'A' | GuiMenu_DEPTH_1 | (motif ? GuiMenu_COMMAND_EXTRA : 0), menu_cb_showAll);
 	EditorMenu_addCommand (domainMenu, U"Zoom in", 'I' | GuiMenu_DEPTH_1, menu_cb_zoomIn);
 	EditorMenu_addCommand (domainMenu, U"Zoom out", 'O' | GuiMenu_DEPTH_1, menu_cb_zoomOut);
 	EditorMenu_addCommand (domainMenu, U"Zoom to selection", 'N' | GuiMenu_DEPTH_1, menu_cb_zoomToSelection);
@@ -1181,6 +1190,7 @@ void structFunctionEditor :: v_createMenus () {
 			1, QUERY_EDITOR_FOR_REAL__getLengthOfSelection);
 
 	EditorMenu_addCommand (domainMenu, U"- Set selection:", 0, nullptr);
+	EditorMenu_addCommand (domainMenu, U"Select all", motif ? 'A' | GuiMenu_DEPTH_1 : 1, menu_cb_selectAll);
 	EditorMenu_addCommand (domainMenu, U"Select...",
 			1, menu_cb_select);
 	EditorMenu_addCommand (domainMenu, U"Widen or shrink selection...",

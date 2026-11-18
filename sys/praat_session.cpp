@@ -6,12 +6,14 @@
 #include "NotebookEditor.h"
 #include "GuiP.h"
 #include "../fon/LongSound.h"
+#include "../fon/Sound.h"
 #include "../foned/SoundEditor.h"
 #include "../foned/TextGridEditor.h"
 #include "../foned/SpectrumEditor.h"
 #include "../foned/PitchEditor.h"
 #include "../foned/ManipulationEditor.h"
 #include "../external/zlib/zlib.h"
+#include "../external/blake3/blake3.h"
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
@@ -24,6 +26,11 @@
 #include <random>
 #include <set>
 #include <vector>
+#if ! motif
+	#include <fcntl.h>
+	#include <sys/file.h>
+	#include <unistd.h>
+#endif
 
 namespace {
 namespace fs = std::filesystem;
@@ -32,6 +39,10 @@ bool autosaveEnabled = true;
 integer autosaveMinutes = 5;
 integer backupsToKeep = 200;
 constexpr integer maximumBackups = 200;
+constexpr integer defaultDiskLimitMiB = 2048, maximumDiskLimitMiB = 1048576;
+constexpr uintmax_t bytesPerMiB = 1024 * 1024;
+const std::string recoveryStagingPrefix = "pending-recovery-";
+integer diskLimitMiB = defaultDiskLimitMiB;
 bool autosaveStarted = false;
 bool autosaveErrorReported = false;
 std::chrono::steady_clock::time_point nextAutosave;
@@ -50,6 +61,7 @@ constexpr integer recordingFields = 3;   // channels, samples, and sampling peri
 void normalizeSettings () {
 	if (autosaveMinutes < 1 || autosaveMinutes > 1440) autosaveMinutes = 5;
 	if (backupsToKeep < 1 || backupsToKeep > maximumBackups) backupsToKeep = maximumBackups;
+	if (diskLimitMiB < 1 || diskLimitMiB > maximumDiskLimitMiB) diskLimitMiB = defaultDiskLimitMiB;
 }
 void resetAutosaveTimer () {
 	normalizeSettings ();
@@ -193,11 +205,11 @@ bool hasExtension (const fs::path &path, const char *expected) {
 			letter += 'a' - 'A';
 	return extension == expected;
 }
-fs::path createStagingFolder (const fs::path &directory) {
+fs::path createStagingFolder (const fs::path &directory, const std::string &prefix = "pending-") {
 	const auto stamp = std::chrono::duration_cast<std::chrono::microseconds> (
 		std::chrono::system_clock::now().time_since_epoch()).count();
 	for (int attempt = 0; attempt < 100; ++ attempt) {
-		const auto path = directory / ("pending-" + std::to_string (stamp) + "-" + std::to_string (std::random_device{}()));
+		const auto path = directory / (prefix + std::to_string (stamp) + "-" + std::to_string (std::random_device{}()));
 		if (fs::create_directory (path)) return path;
 	}
 	Melder_throw (U"Cannot allocate a temporary workspace file.");
@@ -208,6 +220,128 @@ void cleanStagingFile (const fs::path &pending) {
 	fs::remove (pending, ignored);
 	fs::remove (pending.parent_path(), ignored);
 }
+
+// Serialize publishing, recovery reads, and cleanup across Praat processes.
+class RecoveryLock {
+#if motif
+	HANDLE handle = INVALID_HANDLE_VALUE;
+	OVERLAPPED region {};
+#else
+	int fd = -1;
+#endif
+public:
+	explicit RecoveryLock (const fs::path &directory) {
+		const auto path = directory / ".recovery.lock";
+		#if motif
+			handle = CreateFileW (path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+				nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+			Melder_require (handle != INVALID_HANDLE_VALUE, U"Cannot open the recovery storage lock.");
+			if (! LockFileEx (handle, LOCKFILE_EXCLUSIVE_LOCK, 0, 1, 0, & region)) {
+				CloseHandle (handle);
+				Melder_throw (U"Cannot lock recovery storage.");
+			}
+		#else
+			fd = ::open (path.c_str(), O_CREAT | O_RDWR, 0600);
+			Melder_require (fd >= 0, U"Cannot open the recovery storage lock.");
+			if (flock (fd, LOCK_EX) != 0) {
+				::close (fd);
+				Melder_throw (U"Cannot lock recovery storage.");
+			}
+		#endif
+	}
+	RecoveryLock (const RecoveryLock &) = delete;
+	RecoveryLock &operator= (const RecoveryLock &) = delete;
+	~RecoveryLock () {
+		#if motif
+			CloseHandle (handle);
+		#else
+			::close (fd);
+		#endif
+	}
+};
+
+std::string soundDigest (Sound sound) {
+	// Hash the Sound's stored shape and IEEE sample values. Names live in the
+	// snapshots, so renaming a Sound can reuse the same audio.
+	blake3_hasher hasher;
+	blake3_hasher_init (& hasher);
+	const double axes [] = { sound -> xmin, sound -> xmax, sound -> dx, sound -> x1,
+		sound -> ymin, sound -> ymax, sound -> dy, sound -> y1 };
+	const int64 dimensions [] = { sound -> nx, sound -> ny };
+	blake3_hasher_update (& hasher, axes, sizeof axes);
+	blake3_hasher_update (& hasher, dimensions, sizeof dimensions);
+	if (sound -> nx > 0)
+		for (integer channel = 1; channel <= sound -> ny; ++ channel)
+			blake3_hasher_update (& hasher, & sound -> z [channel] [1], size_t (sound -> nx) * sizeof (double));
+	uint8 hash [BLAKE3_OUT_LEN];
+	blake3_hasher_finalize (& hasher, hash, sizeof hash);
+	const char digits [] = "0123456789abcdef";
+	std::string key;
+	for (const auto byte : hash) {
+		key += digits [byte >> 4];
+		key += digits [byte & 15];
+	}
+	return key;
+}
+
+bool isSoundDigest (const std::string &key) {
+	return key.size() == 2 * BLAKE3_OUT_LEN && key.find_first_not_of ("0123456789abcdef") == key.npos;
+}
+
+std::string soundReferenceKey (conststring32 text) {
+	Melder_require (text, U"Missing saved Sound reference.");
+	const std::string key = Melder_peek32to8 (text);
+	Melder_require (isSoundDigest (key), U"Invalid saved Sound reference.");
+	return key;
+}
+
+void cleanInterruptedRecoveryWrites (const fs::path &directory) {
+	std::error_code ignored;
+	for (const auto &entry : fs::directory_iterator (directory)) {
+		const auto name = entry.path().filename().u8string();
+		if (name.rfind (recoveryStagingPrefix, 0) != 0 ||
+				! isSnapshotName ("session-" + name.substr (recoveryStagingPrefix.size()) + "-0.Collection") ||
+				! fs::is_directory (entry.symlink_status())) continue;
+		#if motif
+			const DWORD flags = GetFileAttributesW (entry.path().c_str());
+			if (flags == INVALID_FILE_ATTRIBUTES || (flags & FILE_ATTRIBUTE_REPARSE_POINT)) continue;
+		#endif
+		for (const auto &file : fs::directory_iterator (entry.path())) {
+			const auto path = file.path();
+			if (path.filename() == "snapshot.Collection" ||
+					(path.extension() == ".Sound" && isSoundDigest (path.stem().u8string()))) fs::remove (path, ignored);
+		}
+		fs::remove (entry.path(), ignored);
+	}
+}
+
+void publishWorkspaceFile (const fs::path &pending, const fs::path &destination, bool replaceExisting);
+
+struct RecoverySounds {
+	fs::path directory, staging;
+	std::set<std::string> pending;
+
+	std::string stage (Sound sound) {
+		const auto key = soundDigest (sound);
+		if (! fs::exists (directory / (key + ".Sound")) && pending.insert (key).second) {
+			auto file = fileFor (staging / (key + ".Sound"));
+			Data_writeToBinaryFile (sound, & file);
+		}
+		return key;
+	}
+	void publish () const {
+		if (pending.empty()) return;
+		fs::create_directories (directory);
+		for (const auto &key : pending) {
+			const auto filename = key + ".Sound";
+			publishWorkspaceFile (staging / filename, directory / filename, false);
+		}
+	}
+	~RecoverySounds () {
+		std::error_code ignored;
+		for (const auto &key : pending) fs::remove (staging / (key + ".Sound"), ignored);
+	}
+};
 void appendDraft (Strings drafts, integer &index, TextEditor editor, conststring32 kind) {
 	put (drafts, ++ index, kind);
 	put (drafts, ++ index, MelderFile_peekPath (& editor -> file));
@@ -258,10 +392,10 @@ std::vector<SavedView> openViews () {
 	}
 	return views;
 }
-autoCollection capture (const fs::path &projectDirectory = {}) {
+autoCollection capture (const fs::path &projectDirectory = {}, RecoverySounds *sounds = nullptr) {
 	autoCollection result = Collection_create ();
 	autoStrings header = strings (2);
-	put (header.get(), 1, projectDirectory.empty() ? U"PraatSession 2" : U"PraatSession 3");
+	put (header.get(), 1, sounds ? U"PraatSession 4" : projectDirectory.empty() ? U"PraatSession 2" : U"PraatSession 3");
 	put (header.get(), 2, Melder_integer (theCurrentPraatObjects -> sequentialUniqueIdOfLatestObjectInList));
 	autoStrings metadata = strings (theCurrentPraatObjects -> n * objectFields);
 	autoStrings recordings;
@@ -273,6 +407,7 @@ autoCollection capture (const fs::path &projectDirectory = {}) {
 		auto &entry = theCurrentPraatObjects -> list [i];
 		const bool writable = Data_canWriteBinary (entry.object);
 		const bool longSound = entry.klas == classLongSound;
+		const bool sharedSound = sounds && entry.klas == classSound;
 		Melder_require (writable || longSound,
 			U"Cannot back up ", entry.name.get(), U". Save or remove this object, "
 			U"or turn off saving in Praat > Settings > Session saving settings.");
@@ -291,14 +426,16 @@ autoCollection capture (const fs::path &projectDirectory = {}) {
 				put (recordings.get(), index + 2, Melder_integer (recording -> nx));
 				put (recordings.get(), index + 3, Melder_double (recording -> dx));
 			}
+		} else if (sharedSound) {
+			source = Melder_8to32_e (sounds -> stage (static_cast<Sound> (entry.object)).c_str());
 		}
-		if (writable) payloads -> addItem_ref (entry.object);   // no second copy of a large Sound in memory
+		if (writable && ! sharedSound) payloads -> addItem_ref (entry.object);
 		put (metadata.get(), ++ field, entry.object -> name.get());
 		put (metadata.get(), ++ field, entry.klas -> className);
 		put (metadata.get(), ++ field, source.get());
 		put (metadata.get(), ++ field, Melder_integer (entry.id));
 		put (metadata.get(), ++ field, entry.isSelected ? U"1" : U"0");
-		put (metadata.get(), ++ field, Melder_integer (writable ? payloads -> size : 0));
+		put (metadata.get(), ++ field, Melder_integer (writable && ! sharedSound ? payloads -> size : 0));
 	}
 	const integer draftCount = theReferencesToAllOpenScriptEditors.size + theReferencesToAllOpenNotebookEditors.size;
 	autoStrings drafts = strings (draftCount * draftFields);
@@ -565,6 +702,48 @@ autoCollection readWorkspace (const fs::path &path) {
 	Melder_require (data && data -> classInfo == classCollection, U"This file is not a Praat workspace.");
 	return data.static_cast_move<structCollection>();
 }
+
+autoCollection readRecoveryWorkspace (const fs::path &path, const fs::path &directory) {
+	const RecoveryLock lock (directory);
+	auto snapshot = readWorkspace (path);
+	if (snapshot -> size != 5 || snapshot -> at [1] -> classInfo != classStrings) return snapshot;
+	const auto header = static_cast<Strings> (snapshot -> at [1]);
+	if (header -> numberOfStrings != 2 || ! str32equ (header -> strings [1].get(), U"PraatSession 4")) return snapshot;
+	Melder_require (snapshot -> at [2] -> classInfo == classStrings && snapshot -> at [3] -> classInfo == classCollection,
+		U"Invalid recovery snapshot object records.");
+	const auto metadata = static_cast<Strings> (snapshot -> at [2]);
+	const auto stored = static_cast<Collection> (snapshot -> at [3]);
+	Melder_require (metadata -> numberOfStrings % objectFields == 0 &&
+		metadata -> numberOfStrings / objectFields <= praat_MAXNUM_OBJECTS, U"Invalid recovery snapshot object count.");
+	auto restoredPayloads = Collection_create ();
+	integer readPayloads = 0;
+	for (integer i = 0; i < metadata -> numberOfStrings; i += objectFields) {
+		const auto index = number (metadata -> strings [i + 6].get(), stored -> size);
+		if (index) {
+			Melder_require (index == ++ readPayloads, U"Invalid recovery snapshot object order.");
+			autoDaata payload;
+			payload.adoptFromAmbiguousOwner (static_cast<Daata> (stored -> at [index]));
+			stored -> at [index] = nullptr;
+			restoredPayloads -> addItem_move (payload.move());
+		} else if (str32equ (metadata -> strings [i + 2].get(), U"Sound")) {
+			const auto key = soundReferenceKey (metadata -> strings [i + 3].get());
+			auto file = fileFor (directory / "Sounds" / (key + ".Sound"));
+			auto sound = Data_readFromBinaryFile (& file);
+			Melder_require (sound && sound -> classInfo == classSound && soundDigest (static_cast<Sound> (sound.get())) == key,
+				U"A saved Sound is damaged. Try a snapshot with a different version of that recording.");
+			restoredPayloads -> addItem_move (sound.move());
+		} else {
+			continue;   // Existing LongSound references are resolved by restore().
+		}
+		put (metadata, i + 6, Melder_integer (restoredPayloads -> size));
+	}
+	Melder_require (readPayloads == stored -> size, U"Unexpected recovery snapshot objects.");
+	// Hand the normal workspace restore code its original embedded layout.
+	forget (snapshot -> at [3]);
+	snapshot -> at [3] = restoredPayloads.releaseToAmbiguousOwner ();
+	put (header, 1, U"PraatSession 2");
+	return snapshot;
+}
 bool checkpointBeforeSwitch () {
 	if (! hasWorkspace ()) return true;
 	if (praat_session_isActive ()) {
@@ -616,33 +795,40 @@ autostring32 snapshotLabel (const fs::path &path, const fs::path &directory) {
 		U"    |    ", name && name [0] ? name.get() : U"Untitled workspace"));
 }
 
-// Read the two leading Strings records. Audio and draft text can be large and
-// are never loaded just to populate the recovery preview.
-std::u32string snapshotContents (const fs::path &path) {
-	auto file = fileFor (path);
-	autofile in = Melder_fopen (& file, "rb");
+integer recoverySectionSize (FILE *in, const char *type) {
+	Melder_require (strequ (bingets8 (in).get(), type), U"Invalid recovery snapshot metadata.");
+	(void) bingetw16 (in);   // name of the collection item
+	return bingeti32 (in);
+}
+struct RecoveryHeader { integer sections, objects; bool shared; };
+RecoveryHeader readRecoveryHeader (FILE *in) {
 	char magic [12] {};
 	Melder_require (fread (magic, 1, 12, in) == 12 && std::memcmp (magic, "ooBinaryFile", 12) == 0 &&
 		strequ (bingets8 (in).get(), "Collection"), U"Preview unavailable for this file format.");
 	const auto sections = bingeti32 (in);
 	Melder_require (sections == 4 || sections == 5, U"Preview unavailable for this workspace format.");
-	auto sectionSize = [&] (const char *type) {
-		Melder_require (strequ (bingets8 (in).get(), type), U"Invalid recovery snapshot metadata.");
-		(void) bingetw16 (in);   // name of the collection item
-		return bingeti32 (in);
-	};
-	Melder_require (sectionSize ("Strings") == 2, U"Invalid recovery snapshot header.");
+	Melder_require (recoverySectionSize (in, "Strings") == 2, U"Invalid recovery snapshot header.");
 	const auto version = bingetw16 (in);
-	Melder_require (str32equ (version.get(), U"PraatSession 1") || str32equ (version.get(), U"PraatSession 2"),
+	const bool shared = str32equ (version.get(), U"PraatSession 4");
+	Melder_require ((sections == 4 && str32equ (version.get(), U"PraatSession 1")) ||
+		(sections == 5 && (shared || str32equ (version.get(), U"PraatSession 2"))),
 		U"Preview unavailable for this workspace version.");
 	(void) bingetw16 (in);   // last Objects-list ID
-	const auto fields = sectionSize ("Strings");
+	const auto fields = recoverySectionSize (in, "Strings");
 	Melder_require (fields >= 0 && fields % objectFields == 0 && fields <= praat_MAXNUM_OBJECTS * objectFields,
 		U"Invalid recovery snapshot object count.");
-	const integer count = fields / objectFields;
-	if (! count && sectionSize ("Collection") == 0) {
-		const auto drafts = sectionSize ("Strings");
-		const integer stride = sections == 4 ? legacyDraftFields : draftFields;
+	return { sections, fields / objectFields, shared };
+}
+
+// Audio and draft text can be large, so previews read only the leading records.
+std::u32string snapshotContents (const fs::path &path) {
+	auto file = fileFor (path);
+	autofile in = Melder_fopen (& file, "rb");
+	const auto header = readRecoveryHeader (in);
+	const auto count = header.objects;
+	if (! count && recoverySectionSize (in, "Collection") == 0) {
+		const auto drafts = recoverySectionSize (in, "Strings");
+		const integer stride = header.sections == 4 ? legacyDraftFields : draftFields;
 		Melder_require (drafts >= 0 && drafts % stride == 0, U"Invalid recovery draft count.");
 		return drafts ? Melder_cat (drafts / stride, U" script or notebook drafts · no objects") : U"Empty workspace";
 	}
@@ -656,6 +842,121 @@ std::u32string snapshotContents (const fs::path &path) {
 	}
 	if (count > previewCount) detail += Melder_cat (U"  ·  ", count - previewCount, U" more");
 	return detail;
+}
+
+std::set<std::string> recoverySoundReferences (const fs::path &path) {
+	auto file = fileFor (path);
+	autofile in = Melder_fopen (& file, "rb");
+	const auto header = readRecoveryHeader (in);
+	std::set<std::string> keys;
+	if (! header.shared) return keys;
+	for (integer row = 0; row < header.objects; ++ row) {
+		(void) bingetw16 (in);   // name
+		const auto type = bingetw16 (in), reference = bingetw16 (in);
+		for (integer i = 3; i < objectFields; ++ i) (void) bingetw16 (in);
+		if (str32equ (type.get(), U"Sound")) keys.insert (soundReferenceKey (reference.get()));
+	}
+	return keys;
+}
+
+uintmax_t bytesOnDisk (const fs::path &path) {
+	std::error_code ignored;
+	const auto size = fs::file_size (path, ignored);
+	return ignored ? 0 : size;
+}
+
+struct RecoverySnapshot {
+	fs::path path, label;
+	uintmax_t bytes, labelBytes;
+	std::set<std::string> sounds;
+	bool readable = true, discarded = false;
+};
+
+struct RecoveryStorage {
+	fs::path soundDirectory;
+	std::vector<RecoverySnapshot> active, removed;
+	std::map<std::string, uintmax_t> soundFiles;
+	std::map<std::string, integer> references;
+	uintmax_t bytes = 0;
+	integer unreadable = 0;
+
+	explicit RecoveryStorage (const fs::path &directory, bool scanReferences) : soundDirectory (directory / "Sounds") {
+		for (const bool inRemoved : { false, true }) {
+			auto &list = inRemoved ? removed : active;
+			for (const auto &path : snapshots (inRemoved ? directory / "Removed" : directory)) {
+				const auto label = snapshotLabelPath (directory / path.filename());
+				RecoverySnapshot item { path, label, bytesOnDisk (path), bytesOnDisk (label), {} };
+				if (scanReferences) {
+					try {
+						item.sounds = recoverySoundReferences (path);
+						for (const auto &key : item.sounds) ++ references [key];
+					} catch (MelderError) {
+						Melder_clearError ();
+						item.readable = false;
+						++ unreadable;
+					}
+				}
+				bytes += item.bytes + item.labelBytes;
+				list.push_back (std::move (item));
+			}
+		}
+		if (! fs::exists (soundDirectory)) return;
+		for (const auto &entry : fs::directory_iterator (soundDirectory)) {
+			const auto path = entry.path();
+			const auto key = path.stem().u8string();
+			if (path.extension() != ".Sound" || ! isSoundDigest (key) || ! entry.is_regular_file()) continue;
+			const auto size = bytesOnDisk (path);
+			soundFiles.emplace (key, size);
+			bytes += size;
+		}
+	}
+
+	void collectUnusedSounds () {
+		if (unreadable) return;   // A damaged snapshot could still hold a reference.
+		std::error_code error;
+		for (auto it = soundFiles.begin(); it != soundFiles.end(); ) {
+			if (references [it -> first] == 0) {
+				fs::remove (soundDirectory / (it -> first + ".Sound"), error);
+				if (! error) {
+					bytes -= it -> second;
+					it = soundFiles.erase (it);
+					continue;
+				}
+			}
+			++ it;
+		}
+	}
+	void discard (RecoverySnapshot &item) {
+		if (item.discarded) return;
+		std::error_code error;
+		fs::remove (item.path, error);
+		if (error) return;
+		item.discarded = true;
+		bytes -= item.bytes;
+		fs::remove (item.label, error);
+		if (! error) bytes -= item.labelBytes;
+		for (const auto &key : item.sounds) -- references [key];
+		if (! item.readable) -- unreadable;
+	}
+};
+
+void pruneRecovery (const fs::path &directory, const fs::path &newest) {
+	RecoveryStorage storage (directory, true);
+	const auto limit = uintmax_t (diskLimitMiB) * bytesPerMiB;
+	integer retained = 1;   // The just-published snapshot is always kept.
+	for (auto &item : storage.active) {
+		if (item.path != newest && ++ retained > backupsToKeep) storage.discard (item);
+	}
+	storage.collectUnusedSounds ();
+	for (auto it = storage.removed.rbegin(); it != storage.removed.rend() && storage.bytes > limit; ++ it) {
+		storage.discard (*it);
+		storage.collectUnusedSounds ();
+	}
+	for (auto it = storage.active.rbegin(); it != storage.active.rend() && storage.bytes > limit; ++ it) {
+		if (it -> path == newest || it -> discarded) continue;
+		storage.discard (*it);
+		storage.collectUnusedSounds ();
+	}
 }
 void publishWorkspaceFile (const fs::path &pending, const fs::path &destination, bool replaceExisting) {
 	#if motif
@@ -838,7 +1139,7 @@ Thing_define (WorkspaceRecovery, Thing) {
 	GuiWindow window;
 	GuiList list;
 	GuiButton cancel, restoreButton, moveButton, toggleButton;
-	GuiLabel instruction, status;
+	GuiLabel instruction, status, storage;
 	GuiText details;
 	fs::path directory;
 	std::vector<fs::path> files;
@@ -881,6 +1182,7 @@ void renderRecovery (WorkspaceRecovery me, integer row = 1) {
 	if (! my files.empty()) GuiList_selectItem (my list, std::min (row, (integer) my files.size()));
 	GuiLabel_setText (my instruction, my showingRemoved ? U"Recently removed snapshots" :
 		U"Choose a saved session to reopen.");
+	GuiLabel_setText (my storage, praat_session_storageSummary ().get());
 	GuiLabel_setText (my status, my files.empty() ? (my showingRemoved ? U"No removed snapshots." : U"No recovery snapshots.") : U"");
 	GuiButton_setText (my moveButton, my showingRemoved ? U"Return to recovery list" : U"Remove selected");
 	GuiButton_setText (my toggleButton, my showingRemoved ? U"Back to recovery" : Melder_cat (U"Recently removed (", removedFiles.size(), U")"));
@@ -903,6 +1205,7 @@ void moveSnapshots (WorkspaceRecovery me, GuiButtonEvent) {
 	integer moved = 0;
 	std::u32string error;
 	try {
+		const RecoveryLock lock (my directory);
 		fs::create_directories (target);
 		for (integer i = 1; i <= selected.size; ++ i) {
 			const auto &path = my files [selected [i] - 1];
@@ -929,7 +1232,7 @@ void restoreSelected (WorkspaceRecovery me) {
 	try {
 		const auto selected = GuiList_getSelectedPositions (my list);
 		if (my showingRemoved || selected.size != 1) return;
-		auto snapshot = readWorkspace (my files [selected [1] - 1]);
+		auto snapshot = readRecoveryWorkspace (my files [selected [1] - 1], my directory);
 		if (! checkpointBeforeSwitch ()) return;
 		restore (snapshot.move(), true);
 		restoreFailed = false;
@@ -948,6 +1251,7 @@ void praat_session_prefs () {
 	Preferences_addBool (U"PraatShell.periodicAutosave", & autosaveEnabled, true);
 	Preferences_addInteger (U"PraatShell.autosaveMinutes", & autosaveMinutes, 5);
 	Preferences_addInteger (U"PraatShell.sessionBackupsToKeep", & backupsToKeep, 200);
+	Preferences_addInteger (U"PraatShell.sessionDiskLimitMiB", & diskLimitMiB, defaultDiskLimitMiB);
 }
 bool praat_session_isEnabled () { return saveOnExit; }
 void praat_session_setEnabled (bool enabled) {
@@ -961,12 +1265,25 @@ bool praat_session_isActive () {
 bool praat_session_autosaveEnabled () { return autosaveEnabled; }
 integer praat_session_autosaveMinutes () { normalizeSettings (); return autosaveMinutes; }
 integer praat_session_backupsToKeep () { normalizeSettings (); return backupsToKeep; }
-void praat_session_setAutosaveSettings (bool enabled, integer minutes, integer backups) {
+integer praat_session_diskLimitMiB () { normalizeSettings (); return diskLimitMiB; }
+autostring32 praat_session_storageSummary () {
+	try {
+		const RecoveryStorage storage (backupDirectory (Melder_preferencesFolder()), false);
+		return Melder_dup (Melder_cat (U"Recovery storage: ", Melder_fixed (double (storage.bytes) / bytesPerMiB, 1),
+			U" of ", praat_session_diskLimitMiB (), U" MiB, including recently removed"));
+	} catch (MelderError) {
+		Melder_clearError ();
+	} catch (const std::exception &) { }
+	return Melder_dup (U"Recovery storage usage is unavailable.");
+}
+void praat_session_setAutosaveSettings (bool enabled, integer minutes, integer backups, integer storageLimit) {
 	Melder_require (minutes >= 1 && minutes <= 1440, U"Autosave interval must be between 1 and 1440 minutes.");
 	Melder_require (backups >= 1 && backups <= maximumBackups, U"Number of backups must be between 1 and 200.");
+	Melder_require (storageLimit >= 0 && storageLimit <= maximumDiskLimitMiB, U"Recovery storage limit must be between 1 and 1048576 MiB.");
 	autosaveEnabled = enabled;
 	autosaveMinutes = minutes;
 	backupsToKeep = backups;
+	if (storageLimit) diskLimitMiB = storageLimit;
 	autosaveErrorReported = false;
 	resetAutosaveTimer ();
 }
@@ -1012,17 +1329,24 @@ void praat_session_saveToFolder (MelderFolder folder) {
 	fs::path pending;
 	try {
 		Melder_require (! MelderFolder_isNull (folder), U"No session backup folder is available.");
-		autoCollection snapshot = capture ();
 		const fs::path directory = backupDirectory (folder);
 		fs::create_directories (directory);
-		const auto staging = createStagingFolder (directory);
+		const RecoveryLock lock (directory);
+		try {
+			cleanInterruptedRecoveryWrites (directory);
+		} catch (const std::exception &) { }
+		const auto staging = createStagingFolder (directory, recoveryStagingPrefix);
 		pending = staging / "snapshot.Collection";
+		RecoverySounds sounds { directory / "Sounds", staging, {} };
+		autoCollection snapshot = capture ({}, & sounds);
 		auto file = fileFor (pending);
 		Data_writeToBinaryFile (snapshot.get(), & file);   // closes and checks I/O before publication
+		sounds.publish ();
 		const auto completedStamp = std::chrono::duration_cast<std::chrono::microseconds> (
 			std::chrono::system_clock::now().time_since_epoch()).count();
-		const fs::path completed = directory / ("session-" + std::to_string (completedStamp) + "-" + staging.filename().u8string().substr (8) + ".Collection");
-		fs::rename (pending, completed);   // previous completed snapshots are never overwritten
+		const fs::path completed = directory / ("session-" + std::to_string (completedStamp) + "-" +
+			staging.filename().u8string().substr (recoveryStagingPrefix.size()) + ".Collection");
+		publishWorkspaceFile (pending, completed, false);
 		std::error_code ignored;
 		fs::remove (staging, ignored);
 		pending.clear();
@@ -1035,10 +1359,11 @@ void praat_session_saveToFolder (MelderFolder folder) {
 				Melder_clearError ();   // the completed snapshot is usable without its display label
 			}
 		}
-		const auto saved = snapshots (directory);
-		// Prune only after publication; periodic and exit backups share one history.
-		for (size_t i = (size_t) praat_session_backupsToKeep (); i < saved.size(); ++ i)
-			if (fs::remove (saved [i], ignored)) fs::remove (snapshotLabelPath (saved [i]), ignored);
+		// Retry cleanup at the next backup if a transient error prevents it.
+		normalizeSettings ();
+		try {
+			pruneRecovery (directory, completed);
+		} catch (const std::exception &) { }
 	} catch (const std::exception &error) {
 		cleanStagingFile (pending);
 		Melder_throw (U"Session backup failed: ", Melder_peek8to32_u (error.what()), U". Praat has stayed open.");
@@ -1055,7 +1380,7 @@ bool praat_session_restoreFromFolder (MelderFolder folder) {
 		autostring32 failures;
 		for (const auto &path : snapshots (directory)) {
 			try {
-				restore (readWorkspace (path));
+				restore (readRecoveryWorkspace (path, directory));
 				if (failures) restoreWarning = Melder_dup (failures.get());
 				return true;
 			} catch (MelderError) {
@@ -1139,7 +1464,8 @@ void praat_session_choose (bool atStartup) {
 			auto me = Thing_new (WorkspaceRecovery);
 			my window = GuiWindow_create (150, 100, 790, 450, 740, 360, U"Recover workspace", closeRecovery, me.get(), 0);
 			my instruction = GuiLabel_createShown (my window, 15, -15, 15, 38, U"", 0);
-			my list = GuiList_createShown (my window, 15, -15, 45, -165, true, U"Recovery snapshots");
+			my storage = GuiLabel_createShown (my window, 15, -15, 42, 62, U"", 0);
+			my list = GuiList_createShown (my window, 15, -15, 68, -165, true, U"Recovery snapshots");
 			my details = GuiText_createShown (my window, 15, -15, -154, -86, GuiText_SCROLLED | GuiText_ANYWRAP | GuiText_NONEDITABLE);
 			my status = GuiLabel_createShown (my window, 15, -15, -79, -55, U"", 0);
 			my toggleButton = GuiButton_createShown (my window, 15, 164, -50, -20, U"Recently removed", toggleRemoved, me.get(), 0);
