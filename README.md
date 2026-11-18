@@ -13,15 +13,17 @@
 - **Windows appearance settings** add themes and optional button icons.
 - **Faster opening on Windows** lets you drop files into Objects and double-click objects to open them in View & Edit.
 
-### Get `Praat.exe` on Windows
+### Install on Windows
+
+Praat is distributed as a portable app. It requires Windows 10 or 11 and an x64 processor with x86-64-v3 support.
 
 1. Download [Praat-Windows-x64v3.zip](https://github.com/ai-language-su/praat/releases/latest/download/Praat-Windows-x64v3.zip).
-2. Right-click the ZIP in File Explorer and choose **Extract All**.
-3. Open the extracted folder and double-click **Praat.exe**. No installer is needed.
+2. Right-click the ZIP in File Explorer, choose **Extract All**, and select where you want to keep Praat.
+3. Open the extracted folder and double-click **Praat.exe**.
 
-The download requires Windows 10 or 11 and an x64 processor with x86-64-v3 support.
+### Build from source
 
-If you cloned the repository or downloaded the source ZIP, follow the [MSYS2 setup instructions](HOW_TO_BUILD_ONE.md#1-developing-praat-for-windows). Then run this command from the repository folder in the **MSYS2 MINGW64** shell. It creates `Praat.exe` in that folder.
+Follow the [MSYS2 setup instructions](HOW_TO_BUILD_ONE.md#1-developing-praat-for-windows), then run the following from the source folder in the **MSYS2 MINGW64** shell. The build creates `Praat.exe` in that folder.
 
 ```sh
 make PRAAT_ARCH=x64v3 PRAAT_COMPILER=gcc -j4
